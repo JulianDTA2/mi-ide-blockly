@@ -2,18 +2,14 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
 const api = {
-  // Archivos
-  saveFile: (content) => ipcRenderer.invoke('dialog:saveFile', content),
-  openFile: () => ipcRenderer.invoke('dialog:openFile'),
-  
-  // Arduino
-  listBoards: () => ipcRenderer.invoke('arduino:listBoards'),
-  listAllBoards: () => ipcRenderer.invoke('arduino:listAllBoards'),
-  compile: (data) => ipcRenderer.invoke('arduino:compile', data),
-  upload: (data) => ipcRenderer.invoke('arduino:upload', data),
-  openIde: (code) => ipcRenderer.invoke('arduino:openIde', code),
-  installCore: (coreName) => ipcRenderer.invoke('arduino:installCore', coreName),
-  onLog: (callback) => ipcRenderer.on('arduino:log', (_, data) => callback(data))
+  listBoards: () => ipcRenderer.invoke('arduino:list-boards'),
+  listAllBoards: () => ipcRenderer.invoke('arduino:list-all-boards'),
+  compile: (config) => ipcRenderer.invoke('arduino:compile', config),
+  upload: (config) => ipcRenderer.invoke('arduino:upload', config),
+  installCore: (coreName) => ipcRenderer.invoke('arduino:install-core', coreName),
+  openIde: (config) => ipcRenderer.invoke('arduino:open-ide', config),
+  saveFile: (content, defaultName) => ipcRenderer.invoke('dialog:save-file', content, defaultName),
+  openFile: () => ipcRenderer.invoke('dialog:open-file')
 }
 
 if (process.contextIsolated) {

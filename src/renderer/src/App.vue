@@ -7,12 +7,11 @@ import EditorBlockly from './components/EditorBlockly.vue';
 </template>
 
 <style>
-/* Reseteamos márgenes para que no haya bordes blancos feos */
 body, html {
   margin: 0;
   padding: 0;
   height: 100%;
-  overflow: hidden; /* Evita barras de scroll dobles */
+  overflow: hidden;
 }
 #app {
   height: 100%;

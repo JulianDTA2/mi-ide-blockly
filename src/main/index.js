@@ -2,39 +2,53 @@ import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import fs from 'fs/promises'
-import { existsSync, mkdirSync } from 'fs'
-import { spawn } from 'child_process'
+import { exec } from 'child_process'
+import path from 'path'
+import fs from 'fs'
 import os from 'os'
 
-// Ruta temporal para guardar sketches
-const TEMP_SKETCH_DIR = join(os.tmpdir(), 'MarkRobotSketch')
-if (!existsSync(TEMP_SKETCH_DIR)) {
-  mkdirSync(TEMP_SKETCH_DIR)
+// --- CONFIGURACIÓN DE ARDUINO CLI ---
+const getArduinoCliPath = () => {
+  // Detectar plataforma para añadir .exe si es Windows
+  const ext = process.platform === 'win32' ? '.exe' : '';
+  
+  let cliPath = '';
+  if (app.isPackaged) {
+    // En producción (instalador): resources/bin/arduino-cli.exe
+    cliPath = path.join(process.resourcesPath, 'bin', `arduino-cli${ext}`)
+  } else {
+    // En desarrollo: root/bin/arduino-cli.exe
+    // Ajustamos la ruta relativa desde src/main
+    cliPath = path.join(__dirname, '../../bin', `arduino-cli${ext}`)
+  }
+  
+  // Debug: Verificar si existe el archivo
+  if (!fs.existsSync(cliPath)) {
+    console.error(`❌ CRÍTICO: No se encontró arduino-cli en: ${cliPath}`);
+  } else {
+    console.log(`✅ Arduino CLI encontrado en: ${cliPath}`);
+  }
+  
+  return cliPath;
 }
 
-// Configuración Arduino CLI
-const isWindows = process.platform === 'win32';
-const cliName = isWindows ? 'arduino-cli.exe' : 'arduino-cli';
-let ARDUINO_PATH = null;
-
-// Lógica de detección de ruta simplificada y robusta
-const possiblePaths = [
-  join(process.resourcesPath, 'bin', cliName), // Producción
-  join(app.getAppPath(), '..', '..', 'bin', cliName), // Desarrollo (electron-vite)
-  join(process.cwd(), 'bin', cliName) // Desarrollo (alternativo)
-];
-
-const foundPath = possiblePaths.find(p => existsSync(p));
-
-if (foundPath) {
-  // NO usamos comillas aquí para spawn, spawn maneja espacios automáticamente en el primer argumento
-  ARDUINO_PATH = foundPath; 
-  console.log(`✅ Arduino CLI encontrado en: ${ARDUINO_PATH}`);
-} else {
-  // Fallback a variable de entorno global
-  ARDUINO_PATH = cliName;
-  console.log("⚠️ Arduino CLI local no encontrado. Intentando usar versión global del sistema.");
+// Utilidad para crear carpeta temporal con el nombre del sketch
+// Arduino CLI requiere que el archivo .ino esté en una carpeta del mismo nombre
+const createTempSketch = async (code, sketchName) => {
+  // Limpiamos el nombre de caracteres inseguros
+  const safeName = (sketchName || 'Sketch').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const tmpDir = os.tmpdir()
+  const projectDir = path.join(tmpDir, safeName)
+  const filePath = path.join(projectDir, `${safeName}.ino`)
+  
+  // Crear directorio si no existe
+  if (!fs.existsSync(projectDir)) {
+    fs.mkdirSync(projectDir, { recursive: true })
+  }
+  
+  // Escribir el código en el archivo .ino
+  fs.writeFileSync(filePath, code)
+  return { projectDir, filePath, safeName }
 }
 
 function createWindow() {
@@ -52,7 +66,9 @@ function createWindow() {
     }
   })
 
-  mainWindow.on('ready-to-show', () => { mainWindow.show() })
+  mainWindow.on('ready-to-show', () => {
+    mainWindow.show()
+  })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
@@ -66,156 +82,155 @@ function createWindow() {
   }
 }
 
-// Helper Run Arduino (Spawn)
-const runArduinoSpawn = (args, event) => {
-  return new Promise((resolve) => {
-    console.log(`Ejecutando: "${ARDUINO_PATH}" ${args.join(' ')}`);
-    
-    // Spawn maneja los espacios en la ruta del ejecutable automáticamente si se pasa como primer argumento
-    const child = spawn(ARDUINO_PATH, args);
-
-    child.stdout.on('data', (data) => {
-      if (event) event.sender.send('arduino:log-stream', data.toString());
-      console.log(`stdout: ${data}`);
-    });
-
-    child.stderr.on('data', (data) => {
-      if (event) event.sender.send('arduino:log-stream', data.toString());
-      console.error(`stderr: ${data}`);
-    });
-
-    child.on('close', (code) => { resolve({ success: code === 0, code }); });
-    child.on('error', (err) => {
-       const msg = `Error al iniciar proceso: ${err.message}`;
-       if (event) event.sender.send('arduino:log-stream', msg + '\n');
-       console.error(msg);
-       resolve({ success: false, error: err });
-    });
-  });
-};
-
+// --- INICIO DE LA APLICACIÓN ---
 app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.roboticminds.ide')
+  electronApp.setAppUserModelId('com.markrobot.ide')
 
-  app.on('browser-window-created', (_, window) => { optimizer.watchWindowShortcuts(window) })
+  app.on('browser-window-created', (_, window) => {
+    optimizer.watchWindowShortcuts(window)
+  })
+
+  // ==========================================
+  //     API HANDLERS (COMUNICACIÓN IPC)
+  // ==========================================
+
+  // 1. Listar puertos conectados actualmente
+  ipcMain.handle('arduino:list-boards', async () => {
+    const cliPath = getArduinoCliPath()
+    return new Promise((resolve) => {
+      exec(`"${cliPath}" board list --format json`, (error, stdout) => {
+        if (error) {
+          console.error("Error listando boards:", error);
+          resolve([]);
+          return;
+        }
+        try {
+          const data = JSON.parse(stdout);
+          resolve(data || []);
+        } catch (e) {
+          resolve([]);
+        }
+      })
+    })
+  })
+
+  // 2. Listar TODAS las placas soportadas (Catálogo para el select manual)
+  ipcMain.handle('arduino:list-all-boards', async () => {
+    const cliPath = getArduinoCliPath()
+    return new Promise((resolve) => {
+      console.log("Cargando lista de placas conocidas...");
+      // 'board listall' devuelve todas las definiciones instaladas
+      exec(`"${cliPath}" board listall --format json`, (error, stdout) => {
+        try {
+          const data = JSON.parse(stdout);
+          resolve(data || { boards: [] });
+        } catch (e) {
+          // Si falla (ej. JSON inválido), devolvemos lista vacía
+          resolve({ boards: [] });
+        }
+      })
+    })
+  })
+
+  // 3. Compilar Código
+  ipcMain.handle('arduino:compile', async (event, { code, fqbn, sketchName }) => {
+    const cliPath = getArduinoCliPath()
+    try {
+      // 1. Crear archivo temporal .ino
+      const { projectDir } = await createTempSketch(code, sketchName)
+      console.log(`Compilando ${fqbn} en ${projectDir}...`);
+      
+      return new Promise((resolve) => {
+        // 2. Ejecutar comando compile
+        const cmd = `"${cliPath}" compile --fqbn ${fqbn} "${projectDir}"`
+        exec(cmd, (error, stdout, stderr) => {
+          resolve({
+            success: !error,
+            log: error ? (stderr || stdout) : stdout
+          })
+        })
+      })
+    } catch (err) {
+      return { success: false, log: `Error interno: ${err.message}` }
+    }
+  })
+
+  // 4. Subir Código a la Placa
+  ipcMain.handle('arduino:upload', async (event, { port, fqbn, sketchName }) => {
+    const cliPath = getArduinoCliPath()
+    // Recuperamos la ruta temporal basada en el nombre del sketch
+    const safeName = (sketchName || 'Sketch').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const projectDir = path.join(os.tmpdir(), safeName)
+
+    return new Promise((resolve) => {
+      console.log(`Subiendo a ${port} (FQBN: ${fqbn})...`);
+      // Comando upload especificando puerto y FQBN
+      const cmd = `"${cliPath}" upload -p ${port} --fqbn ${fqbn} "${projectDir}"`
+      exec(cmd, (error, stdout, stderr) => {
+        resolve({
+          success: !error,
+          log: error ? (stderr || stdout) : stdout
+        })
+      })
+    })
+  })
+
+  // 5. Instalar Core (ej: arduino:avr)
+  ipcMain.handle('arduino:install-core', async (event, coreName) => {
+    const cliPath = getArduinoCliPath()
+    return new Promise((resolve) => {
+      console.log(`Instalando core: ${coreName}...`);
+      const cmd = `"${cliPath}" core install ${coreName}`
+      exec(cmd, (error, stdout, stderr) => {
+        resolve({
+          success: !error,
+          log: error ? (stderr + stdout) : stdout
+        })
+      })
+    })
+  })
+
+  // 6. Abrir en Arduino IDE Nativo (si está instalado y asociado a .ino)
+  ipcMain.handle('arduino:open-ide', async (event, { code, sketchName }) => {
+    try {
+      const { filePath } = await createTempSketch(code, sketchName)
+      shell.openPath(filePath) // Abre el archivo con la app predeterminada del sistema
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // 7. Diálogo: Guardar Archivo (XML Blockly)
+  ipcMain.handle('dialog:save-file', async (event, content, defaultName) => {
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      defaultPath: defaultName || 'MySketch.xml',
+      filters: [{ name: 'Blockly XML', extensions: ['xml'] }]
+    })
+    if (!canceled && filePath) {
+      fs.writeFileSync(filePath, content)
+      return { success: true, path: filePath }
+    }
+    return { success: false }
+  })
+
+  // 8. Diálogo: Abrir Archivo (XML Blockly)
+  ipcMain.handle('dialog:open-file', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: 'Blockly XML', extensions: ['xml'] }]
+    })
+    if (!canceled && filePaths.length > 0) {
+      const content = fs.readFileSync(filePaths[0], 'utf-8')
+      return { canceled: false, content, fileName: path.basename(filePaths[0]) }
+    }
+    return { canceled: true }
+  })
 
   createWindow()
 
-  // 1. LIST BOARDS
-  ipcMain.handle('arduino:listBoards', async () => {
-    return new Promise((resolve) => {
-        // Usamos JSON format para parsing seguro
-        const child = spawn(ARDUINO_PATH, ['board', 'list', '--format', 'json']);
-        
-        let output = '';
-        let errorOutput = '';
-
-        child.stdout.on('data', (d) => output += d);
-        child.stderr.on('data', (d) => errorOutput += d);
-        
-        child.on('close', (code) => {
-            if (code !== 0) {
-                console.error("Error al listar placas:", errorOutput);
-                resolve([]);
-                return;
-            }
-            try {
-                // arduino-cli devuelve un array JSON
-                const json = JSON.parse(output);
-                resolve(json || []);
-            } catch (e) {
-                console.error("Error parseando JSON de placas:", e);
-                // Si falla el parseo, devolvemos array vacío
-                resolve([]);
-            }
-        });
-        
-        child.on('error', (err) => {
-            console.error("Error spawn listBoards:", err);
-            resolve([]);
-        });
-    });
-  });
-
-  ipcMain.handle('arduino:listAllBoards', async () => {
-    return new Promise((resolve) => {
-        const child = spawn(ARDUINO_PATH, ['board', 'listall', '--format', 'json']);
-        let output = '';
-        child.stdout.on('data', (d) => output += d);
-        child.on('close', () => {
-            try { 
-                const json = JSON.parse(output);
-                resolve(json || { boards: [] }); 
-            } catch(e) { resolve({ boards: [] }); }
-        });
-    });
-  });
-
-  // COMPILE
-  ipcMain.handle('arduino:compile', async (event, { code, fqbn }) => {
-    const sketchPath = join(TEMP_SKETCH_DIR, 'MarkRobotSketch.ino');
-    try { await fs.writeFile(sketchPath, code, 'utf-8'); } 
-    catch (e) { return { success: false, log: `Error escritura: ${e.message}` }; }
-
-    event.sender.send('arduino:log-stream', `Iniciando compilación para ${fqbn}...\n`);
-    const args = ['compile', '--fqbn', fqbn, TEMP_SKETCH_DIR, '--verbose'];
-    const result = await runArduinoSpawn(args, event);
-    return { success: result.success };
-  });
-
-  // UPLOAD
-  ipcMain.handle('arduino:upload', async (event, { port, fqbn }) => {
-    event.sender.send('arduino:log-stream', `Iniciando subida al puerto ${port}...\n`);
-    const args = ['upload', '-p', port, '--fqbn', fqbn, TEMP_SKETCH_DIR];
-    const result = await runArduinoSpawn(args, event);
-    return { success: result.success };
-  });
-
-  // INSTALL CORE
-  ipcMain.handle('arduino:installCore', async (event, coreName) => {
-      event.sender.send('arduino:log-stream', `Instalando núcleo ${coreName}...\n`);
-      const result = await runArduinoSpawn(['core', 'install', coreName], event);
-      return { success: result.success };
-  });
-
-  // SAVE FILE
-  ipcMain.handle('dialog:saveFile', async (_, data) => {
-    let contentToSave = typeof data === 'object' ? data.content : data;
-    let defaultPath = (typeof data === 'object' && data.defaultName) ? (data.defaultName.endsWith('.json') ? data.defaultName : data.defaultName + '.json') : 'sketch.json';
-
-    const { canceled, filePath } = await dialog.showSaveDialog({
-      defaultPath: defaultPath,
-      filters: [{ name: 'Blockly Project', extensions: ['json'] }]
-    })
-    
-    if (canceled) return { success: false, canceled: true }
-    try {
-      await fs.writeFile(filePath, contentToSave, 'utf-8')
-      return { success: true, filePath }
-    } catch (e) { return { success: false, error: e.message } }
-  })
-
-  // OPEN FILE
-  ipcMain.handle('dialog:openFile', async () => {
-    const { canceled, filePaths } = await dialog.showOpenDialog({
-      properties: ['openFile'],
-      filters: [{ name: 'Blockly Project', extensions: ['json'] }]
-    })
-    if (canceled) return { canceled: true }
-    try {
-      const content = await fs.readFile(filePaths[0], 'utf-8')
-      return { canceled: false, content, fileName: filePaths[0] }
-    } catch (e) { return { canceled: false, error: e.message } }
-  })
-
-  // OPEN IDE
-  ipcMain.handle('arduino:openIde', async (event, code) => {
-    const sketchPath = join(TEMP_SKETCH_DIR, 'MarkRobotSketch.ino')
-    try {
-      await fs.writeFile(sketchPath, code, 'utf-8')
-      await shell.openPath(sketchPath)
-      return { success: true }
-    } catch (e) { return { success: false, error: e.message } }
+  app.on('activate', function () {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
 

@@ -1,8 +1,165 @@
+<template>
+  <div class="app-layout">
+    
+    <!-- BARRA SUPERIOR -->
+    <header class="top-bar">
+      <!-- LOGOS -->
+      <div class="logo-area">
+          <img :src="logo1" alt="Logo RM" class="app-logo" />
+          <span class="divider-logo">|</span>
+          <img :src="logo2" alt="Logo Mark" class="app-logo" />
+      </div>
+      
+      <div class="controls-wrapper">
+        <div class="hardware-controls neu-flat">
+            <!-- SELECTOR DE PLACA (MANUAL + AUTO) -->
+            <select v-model="selectedBoardFqbn" class="hw-select neu-input" title="Seleccionar Placa">
+                <option value="arduino:avr:uno">Arduino Uno</option>
+                <option value="arduino:avr:nano">Arduino Nano</option>
+                <option value="arduino:avr:mega">Arduino Mega</option>
+                <option value="esp8266:esp8266:nodemcuv2">NodeMCU 1.0</option>
+                <option value="esp32:esp32:esp32">ESP32 Dev Module</option>
+                <option disabled>──────────────</option>
+                <option v-for="b in allKnownBoards" :key="b.fqbn" :value="b.fqbn">
+                    {{ b.name }}
+                </option>
+            </select>
+
+              <div class="port-selector">
+                  <select v-model="selectedPort" class="hw-select port-select neu-input">
+                      <option value="" disabled>Puerto no sel.</option>
+                      <option v-for="p in availablePorts" :key="p.address" :value="p.address">
+                          {{ p.address }} {{ (p.boards && p.boards.length > 0) ? `(${p.boards[0].name})` : '' }}
+                      </option>
+                  </select>
+                <!-- ICONO REFRESH -->
+                <button @click="refreshPorts" class="icon-btn refresh-btn neu-btn-icon" title="Refrescar Puertos">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- SKETCH NAME INPUT -->
+        <div class="sketch-name-container">
+            <input 
+                type="text" 
+                v-model="sketchName" 
+                class="sketch-name-input neu-inset" 
+                placeholder="NombreProyecto" 
+            />
+        </div>
+
+        <div class="actions-area">
+            <!-- VERIFICAR -->
+            <button class="action-btn neu-btn verify-btn" @click="verifyCode" :disabled="isCompiling" title="Verificar/Compilar">
+                <span v-if="isCompiling">
+                    <svg class="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                </span>
+                <span v-else>
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                </span> 
+                <span class="btn-text">Verificar</span>
+            </button>
+            
+            <!-- SUBIR -->
+            <button class="action-btn neu-btn upload-btn" @click="uploadCode" :disabled="isUploading" title="Subir a Placa">
+                <span v-if="isUploading">
+                    <svg class="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                </span>
+                <span v-else>
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                </span> 
+                <span class="btn-text">Subir</span>
+            </button>
+
+            <!-- EJECUTAR (Simulación/Log) -->
+            <button class="action-btn neu-btn run-btn" @click="runSimulation" title="Ver Código Generado">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span class="btn-text">Código</span>
+            </button>
+
+            <div class="divider"></div>
+
+            <!-- INSTALAR CORE -->
+            <button class="action-btn secondary-btn neu-btn-icon" @click="installAvrCore" :disabled="isInstalling" title="Instalar Soporte Arduino Uno/Nano">
+                <span v-if="isInstalling">
+                    <svg class="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                </span>
+                <span v-else>
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                </span>
+            </button>
+
+            <!-- ABRIR IDE -->
+            <button class="action-btn secondary-btn neu-btn" @click="openInArduino" title="Abrir en IDE Nativo">
+                <span class="btn-text">IDE</span> 
+                <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+            </button>
+            
+            <!-- GUARDAR -->
+            <button class="action-btn secondary-btn neu-btn-icon" @click="saveSketch" title="Guardar Proyecto">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
+            </button>
+            
+            <!-- ABRIR -->
+            <button class="action-btn secondary-btn neu-btn-icon" @click="loadSketch" title="Abrir Proyecto">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z"></path></svg>
+            </button>
+            
+            <!-- LIMPIAR -->
+            <button class="action-btn delete-btn neu-btn-icon danger" @click="clearWorkspace" title="Limpiar">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <!-- BLOCKLY CON FONDO DE PUNTOS -->
+      <div ref="blocklyDiv" class="blockly-container neu-inset-large dot-grid-background"></div>
+
+      <aside class="right-sidebar neu-flat">
+        <div class="tabs">
+            <button class="tab active">C++ Code</button>
+        </div>
+        
+        <div class="code-panel">
+            <textarea class="panel-content code-font neu-inset" readonly :value="generatedCode"></textarea>
+        </div>
+
+        <div class="output-panel neu-flat-top" :class="{ 'collapsed': !showOutput }">
+            <div class="panel-header" @click="showOutput = !showOutput">
+                <div class="header-title">
+                    <span class="toggle-icon">
+                        <svg v-if="showOutput" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path></svg>
+                    </span>
+                    <span>Output Console</span>
+                </div>
+                <button class="clear-console neu-btn-small" @click.stop="outputLog = ''">
+                    Limpiar
+                </button>
+            </div>
+            <textarea v-show="showOutput" class="console-content neu-inset" readonly :value="outputLog"></textarea>
+        </div>
+      </aside>
+    </main>
+  </div>
+</template>
+
 <script setup>
 import { onMounted, ref } from 'vue';
 import * as Blockly from 'blockly';
 import * as En from 'blockly/msg/en';
 import 'blockly/blocks'; 
+
+// 1. IMPORTAMOS LAS DEFINICIONES DE LOS BLOQUES PERSONALIZADOS
+// Asegúrate de haber creado el archivo src/renderer/src/custom_blocks.js
+import createCustomBlocks from '../custom_blocks.js';
+
+// 2. Importamos el Generador
 import ArduinoGenerator from '../arduino_core.js'; 
 
 import logo2 from '../../../../resources/logo_m4rk.webp'; 
@@ -32,19 +189,28 @@ let workspace = null;
 // GESTIÓN DE HARDWARE
 
 async function refreshPorts() {
-  if (!window.api) return;
+  if (!window.api) {
+    console.error("Falta window.api. Asegúrate de actualizar src/preload/index.js");
+    outputLog.value += "\n⚠️ ERROR CRÍTICO: No se detecta la conexión con el backend (preload).";
+    return;
+  }
+
   outputLog.value += "\nBuscando placas conectadas...";
   
   try {
     const ports = await window.api.listBoards(); 
     availablePorts.value = ports;
     
-    if (ports.length > 0) {
+    if (ports && ports.length > 0) {
       const first = ports[0];
       if (first.address) selectedPort.value = first.address;
+      
+      // Auto-detección de placa
       if (first.boards && first.boards.length > 0) {
         selectedBoardFqbn.value = first.boards[0].fqbn;
         outputLog.value += `\nAuto-detectado: ${first.boards[0].name} en ${first.address}`;
+      } else {
+         outputLog.value += `\nDetectado puerto ${first.address} (Placa desconocida)`;
       }
     } else {
       outputLog.value += "\nNo se encontraron placas conectadas.";
@@ -56,6 +222,8 @@ async function refreshPorts() {
 
 async function verifyCode() {
   if (isCompiling.value) return;
+  if (!window.api) { alert("Backend no conectado"); return; }
+
   isCompiling.value = true;
   showOutput.value = true;
   outputLog.value = "Iniciando compilación...\n";
@@ -64,10 +232,11 @@ async function verifyCode() {
   try {
     const res = await window.api.compile({
       code: generatedCode.value,
-      fqbn: selectedBoardFqbn.value
+      fqbn: selectedBoardFqbn.value,
+      sketchName: sketchName.value || 'Sketch'
     });
     outputLog.value += res.log;
-    if (res.success) outputLog.value += "\n✅ VERIFICADO.";
+    if (res.success) outputLog.value += "\n✅ VERIFICADO CORRECTAMENTE.";
   } catch (e) {
     outputLog.value += "\nError crítico: " + e.message;
   } finally {
@@ -77,6 +246,8 @@ async function verifyCode() {
 
 async function uploadCode() {
   if (isUploading.value) return;
+  if (!window.api) { alert("Backend no conectado"); return; }
+  
   if (!selectedPort.value) {
     alert("Por favor selecciona un PUERTO primero.");
     return;
@@ -84,12 +255,14 @@ async function uploadCode() {
   
   isUploading.value = true;
   showOutput.value = true;
-  outputLog.value = "Iniciando subida...\n(Esto compilará el código primero si es necesario)\n";
+  outputLog.value = "Iniciando subida...\n(Esto compilará el código primero)\n";
   
   try {
+    // 1. Compilar antes de subir
     const compileRes = await window.api.compile({
       code: generatedCode.value,
-      fqbn: selectedBoardFqbn.value
+      fqbn: selectedBoardFqbn.value,
+      sketchName: sketchName.value || 'Sketch'
     });
     
     if (!compileRes.success) {
@@ -98,10 +271,13 @@ async function uploadCode() {
       return;
     }
 
-    outputLog.value += "\nCompilación OK. Subiendo a la placa...\n";
+    outputLog.value += "\nCompilación OK. Subiendo a la placa en " + selectedPort.value + "...\n";
+    
+    // 2. Subir
     const uploadRes = await window.api.upload({
       port: selectedPort.value,
-      fqbn: selectedBoardFqbn.value
+      fqbn: selectedBoardFqbn.value,
+      sketchName: sketchName.value || 'Sketch'
     });
     
     outputLog.value += uploadRes.log;
@@ -115,26 +291,26 @@ async function uploadCode() {
 
 async function installAvrCore() {
   if (isInstalling.value) return;
-  
-  if(!confirm("Esto descargará el soporte para Arduino Uno/Nano/Mega desde internet. ¿Desea continuar?")) return;
+  if (!window.api) return;
+
+  if(!confirm("Esto descargará el soporte para Arduino Uno/Nano/Mega. ¿Continuar?")) return;
 
   isInstalling.value = true;
   showOutput.value = true;
-  outputLog.value += "\n⬇ Iniciando descarga e instalación del núcleo 'arduino:avr'...\nEsto puede tardar unos minutos dependiendo de tu conexión.\n";
+  outputLog.value += "\n⬇ Iniciando descarga del núcleo 'arduino:avr'...\n";
   
   try {
     const res = await window.api.installCore('arduino:avr');
     outputLog.value += res.log;
     
     if (res.success) {
-        outputLog.value += "\n✅ Core AVR instalado correctamente. ¡Ahora puedes compilar offline!";
-        if(window.api) {
-            window.api.listAllBoards().then(data => {
-                if(data.boards) allKnownBoards.value = data.boards;
-            });
-        }
+        outputLog.value += "\n✅ Core AVR instalado.";
+        // Recargar lista de placas conocidas
+        window.api.listAllBoards().then(data => {
+            if(data && data.boards) allKnownBoards.value = data.boards;
+        });
     } else {
-        outputLog.value += "\n⚠️ Hubo un error en la instalación. Revisa tu conexión a internet.";
+        outputLog.value += "\n⚠️ Error en la instalación.";
     }
   } catch (e) {
     outputLog.value += "\nError crítico al instalar core: " + e.message;
@@ -145,25 +321,20 @@ async function installAvrCore() {
 
 async function openInArduino() {
   outputLog.value += "\nAbriendo en Arduino IDE...";
-  await window.api.openIde(generatedCode.value);
+  if(window.api) {
+      await window.api.openIde({
+          code: generatedCode.value, 
+          sketchName: sketchName.value || 'Sketch'
+      });
+  }
 }
 
 async function saveSketch() {
   if (window.api) {
-    // Usamos el nombre del sketch para sugerir el nombre del archivo
-    // Nota: window.api.saveFile debe estar preparado en el backend para recibir
-    // un objeto { content, defaultName } o similar, si no, aquí solo pasamos el contenido.
-    // Asumiremos que el backend (main process) usa dialog.showSaveDialog.
-    // Podemos pasar el nombre por separado si la API lo permite, pero
-    // por compatibilidad con la API actual, guardamos el contenido.
-    // Una mejora futura en backend sería: saveFile(content, defaultPath)
-    
-    // Si quisieras implementar el nombre por defecto, necesitarías actualizar src/preload/index.js y src/main/index.js
-    // para aceptar un segundo argumento.
-    // Por ahora, simulamos que el usuario pone el nombre, pero mantenemos el input actualizado.
-    
-    const result = await window.api.saveFile(generatedXml.value);
-    if(result.success) outputLog.value += `\nProyecto '${sketchName.value}' guardado.`;
+    const result = await window.api.saveFile(generatedXml.value, sketchName.value);
+    if(result.success) {
+        outputLog.value += `\nProyecto guardado en: ${result.path}`;
+    }
   }
 }
 
@@ -172,24 +343,28 @@ async function loadSketch() {
     const result = await window.api.openFile();
     if(!result.canceled && result.content) {
         workspace.clear();
-        const xml = Blockly.utils.xml.textToDom(result.content);
-        Blockly.Xml.domToWorkspace(xml, workspace);
-        outputLog.value += "\nProyecto cargado.";
+        try {
+            const xml = Blockly.utils.xml.textToDom(result.content);
+            Blockly.Xml.domToWorkspace(xml, workspace);
+            outputLog.value += "\nProyecto cargado exitosamente.";
+            if(result.fileName) {
+                sketchName.value = result.fileName.replace(/\.[^/.]+$/, "");
+            }
+        } catch(e) {
+            outputLog.value += "\nError al parsear archivo.";
+            console.error(e);
+        }
     }
   }
 }
 
 function runSimulation() {
     showOutput.value = true;
-    outputLog.value += "\n--- SIMULACIÓN DE EJECUCIÓN ---\n";
-    outputLog.value += "El código C++ generado es:\n";
+    outputLog.value += "\n--- CÓDIGO GENERADO ---\n";
     outputLog.value += generatedCode.value;
-    outputLog.value += "\n-------------------------------\n";
-    alert("Código listo para ser ejecutado en la placa. Revisa la consola de salida.");
 }
 
-// TOOLBOX Y BLOCKLY
-
+// --- CONFIGURACIÓN DE BLOCKLY (TOOLBOX) ---
 const toolbox = {
   kind: 'categoryToolbox',
   contents: [
@@ -197,8 +372,7 @@ const toolbox = {
       { kind: 'block', type: 'arduino_start' },
       { kind: 'button', text: 'Crear Variable', callbackKey: 'CREATE_VARIABLE' },
       { kind: 'block', type: 'variables_get' },
-      { kind: 'block', type: 'variables_set' },
-      { kind: 'block', type: 'variables_set_type' }
+      { kind: 'block', type: 'variables_set' }
     ]},
     { kind: 'category', name: 'Lógica', colour: '#5C81A6', contents: [
       { kind: 'block', type: 'controls_if' },
@@ -210,7 +384,7 @@ const toolbox = {
     { kind: 'category', name: 'Bucles', colour: '#5CA65C', contents: [
       { kind: 'block', type: 'controls_repeat_ext', inputs: { TIMES: { shadow: { type: 'math_number', fields: { NUM: 10 } } } } },
       { kind: 'block', type: 'controls_whileUntil' },
-      { kind: 'block', type: 'controls_for', inputs: { FROM: { shadow: { type: 'math_number', fields: { NUM: 1 } } }, TO: { shadow: { type: 'math_number', fields: { NUM: 10 } } }, BY: { shadow: { type: 'math_number', fields: { NUM: 1 } } } } },
+      { kind: 'block', type: 'controls_for', inputs: { FROM: { shadow: { type: 'math_number', fields: { NUM: 1 } } }, TO: { shadow: { type: 'math_number', fields: { NUM: 10 } } }, BY: { shadow: { type: 'math_number', fields: { NUM: 1 } } } } }
     ]},
     { kind: 'category', name: 'Matemáticas', colour: '#5C68A6', contents: [
       { kind: 'block', type: 'math_number' },
@@ -260,19 +434,21 @@ function clearWorkspace() {
 
 onMounted(async () => {
   if (blocklyDiv.value) {
+    // 1. INICIALIZAMOS LOS BLOQUES ANTES DE INYECTAR EL WORKSPACE
+    // Esto es crucial para que Blockly sepa cómo dibujar los bloques personalizados
+    createCustomBlocks();
+
     workspace = Blockly.inject(blocklyDiv.value, {
       toolbox: toolbox,
       scrollbars: true,
       media: 'media/', 
       zoom: { controls: true, wheel: true, startScale: 1.0, maxScale: 3, minScale: 0.3, scaleSpeed: 1.2 },
-      // Eliminamos el grid por defecto de Blockly para usar nuestro fondo CSS
-      // grid: { spacing: 20, length: 3, colour: '#e0e5ec', snap: true }, 
       renderer: 'geras',
       theme: {
         'base': 'classic',
         'fontStyle': { 'family': 'Segoe UI, sans-serif', 'weight': 'bold', 'size': 12 },
         'componentStyles': { 
-            'workspaceBackgroundColour': 'transparent', // Transparente para ver el fondo CSS
+            'workspaceBackgroundColour': 'transparent', 
             'toolboxBackgroundColour': '#e0e5ec', 
             'flyoutBackgroundColour': '#e0e5eccc' 
         }
@@ -286,166 +462,17 @@ onMounted(async () => {
     workspace.addChangeListener(updateContent);
     window.addEventListener('resize', () => Blockly.svgResize(workspace));
     
-    refreshPorts();
+    // Iniciar carga de datos del backend
+    await refreshPorts();
     
     if(window.api) {
         window.api.listAllBoards().then(data => {
-            if(data.boards) allKnownBoards.value = data.boards;
-        });
+            if(data && data.boards) allKnownBoards.value = data.boards;
+        }).catch(err => console.error("Error loading boards", err));
     }
   }
 });
 </script>
-
-<template>
-  <div class="app-layout">
-    
-    <!-- BARRA SUPERIOR -->
-    <header class="top-bar">
-      <!-- LOGOS: Ahora sin card y con dimensiones iguales -->
-      <div class="logo-area">
-          <img :src="logo1" alt="Logo 1" class="app-logo" />
-          <span class="divider-logo">|</span>
-          <img :src="logo2" alt="Logo 2" class="app-logo" /> <!-- Misma clase para ambos -->
-      </div>
-      
-      <div class="controls-wrapper">
-        <div class="hardware-controls neu-flat">
-            <select v-model="selectedBoardFqbn" class="hw-select neu-input" title="Seleccionar Placa">
-                <option value="arduino:avr:uno">Arduino Uno</option>
-                <option value="arduino:avr:nano">Arduino Nano</option>
-                <option value="arduino:avr:mega">Arduino Mega</option>
-                <option value="esp8266:esp8266:nodemcuv2">NodeMCU 1.0</option>
-                <option value="esp32:esp32:esp32">ESP32 Dev Module</option>
-                <option v-for="b in allKnownBoards" :key="b.fqbn" :value="b.fqbn">
-                    {{ b.name }}
-                </option>
-            </select>
-
-              <div class="port-selector">
-                  <select v-model="selectedPort" class="hw-select port-select neu-input">
-                      <option value="" disabled>Puerto</option>
-                      <option v-for="p in availablePorts" :key="p.address" :value="p.address">
-                          {{ p.address }} {{ (p.boards && p.boards.length > 0) ? `(${p.boards[0].name})` : '(Desconocido)' }}
-                      </option>
-                  </select>
-                <!-- ICONO REFRESH (SVG) -->
-                <button @click="refreshPorts" class="icon-btn refresh-btn neu-btn-icon" title="Refrescar Puertos">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
-                    </svg>
-                </button>
-            </div>
-        </div>
-
-        <!-- SKETCH NAME INPUT (NUEVO) -->
-        <div class="sketch-name-container">
-            <input 
-                type="text" 
-                v-model="sketchName" 
-                class="sketch-name-input neu-inset" 
-                placeholder="Sketch_Name" 
-            />
-        </div>
-
-        <div class="actions-area">
-            <!-- VERIFICAR -->
-            <button class="action-btn neu-btn verify-btn" @click="verifyCode" :disabled="isCompiling" title="Verificar/Compilar">
-                <span v-if="isCompiling">
-                    <svg class="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-                </span>
-                <span v-else>
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                </span> 
-                <span class="btn-text">Verificar</span>
-            </button>
-            
-            <!-- SUBIR -->
-            <button class="action-btn neu-btn upload-btn" @click="uploadCode" :disabled="isUploading" title="Subir a Placa">
-                <span v-if="isUploading">
-                    <svg class="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-                </span>
-                <span v-else>
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
-                </span> 
-                <span class="btn-text">Subir</span>
-            </button>
-
-            <!-- EJECUTAR -->
-            <button class="action-btn neu-btn run-btn" @click="runSimulation" title="Ejecutar Salida">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                <span class="btn-text">Ejecutar</span>
-            </button>
-
-            <div class="divider"></div>
-
-            <!-- INSTALAR CORE (ICONO DESCARGA) -->
-            <button class="action-btn secondary-btn neu-btn-icon" @click="installAvrCore" :disabled="isInstalling" title="Instalar Soporte Arduino Uno/Nano">
-                <span v-if="isInstalling">
-                    <svg class="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-                </span>
-                <span v-else>
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                </span>
-            </button>
-
-            <!-- ABRIR IDE (ICONO LINK) -->
-            <button class="action-btn secondary-btn neu-btn" @click="openInArduino" title="Abrir en IDE Nativo">
-                <span class="btn-text">IDE</span> 
-                <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
-            </button>
-            
-            <!-- GUARDAR (ICONO DISK) -->
-            <button class="action-btn secondary-btn neu-btn-icon" @click="saveSketch" title="Guardar Proyecto">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
-            </button>
-            
-            <!-- ABRIR (ICONO FOLDER) -->
-            <button class="action-btn secondary-btn neu-btn-icon" @click="loadSketch" title="Abrir Proyecto">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z"></path></svg>
-            </button>
-            
-            <!-- LIMPIAR (ICONO TRASH) -->
-            <button class="action-btn delete-btn neu-btn-icon danger" @click="clearWorkspace" title="Limpiar">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-            </button>
-        </div>
-      </div>
-    </header>
-
-    <main class="main-content">
-      <!-- BLOCKLY CON FONDO DE PUNTOS -->
-      <div ref="blocklyDiv" class="blockly-container neu-inset-large dot-grid-background"></div>
-
-      <aside class="right-sidebar neu-flat">
-        <div class="tabs">
-            <button class="tab active">C++ Code</button>
-        </div>
-        
-        <div class="code-panel">
-            <textarea class="panel-content code-font neu-inset" readonly :value="generatedCode"></textarea>
-        </div>
-
-        <div class="output-panel neu-flat-top" :class="{ 'collapsed': !showOutput }">
-            <div class="panel-header" @click="showOutput = !showOutput">
-                <div class="header-title">
-                    <span class="toggle-icon">
-                        <!-- CHEVRON UP/DOWN -->
-                        <svg v-if="showOutput" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
-                        <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path></svg>
-                    </span>
-                    <span>Output Console</span>
-                </div>
-                <button class="clear-console neu-btn-small" @click.stop="outputLog = ''">
-                    Limpiar
-                </button>
-            </div>
-            <textarea v-show="showOutput" class="console-content neu-inset" readonly :value="outputLog"></textarea>
-        </div>
-      </aside>
-    </main>
-  </div>
-</template>
 
 <style scoped>
 /* VARIABLES NEUMORFISM */
@@ -480,10 +507,7 @@ onMounted(async () => {
   to { transform: rotate(360deg); }
 }
 
-/* =========================================
-   ESTILOS NEUMÓRFICOS
-   ========================================= */
-
+/* ESTILOS NEUMÓRFICOS */
 .neu-btn, .neu-btn-icon {
     border-radius: 10px;
     background: #e0e5ec;
@@ -496,7 +520,7 @@ onMounted(async () => {
 .neu-btn:hover, .neu-btn-icon:hover {
     transform: translateY(-1px);
     box-shadow: 8px 8px 16px #a3b1c6, -8px -8px 16px #ffffff;
-    color: #6d7fcc; /* Accent color on hover */
+    color: #6d7fcc;
 }
 
 .neu-btn:active, .neu-btn-icon:active {
@@ -521,10 +545,7 @@ onMounted(async () => {
     box-shadow: 5px 5px 10px #a3b1c6, -5px -5px 10px #ffffff;
 }
 
-/* =========================================
-   LAYOUT
-   ========================================= */
-
+/* LAYOUT */
 .top-bar {
   min-height: 70px;
   background: #e0e5ec;
@@ -543,10 +564,9 @@ onMounted(async () => {
   min-width: 120px;
 }
 
-/* LOGOS IGUALES */
 .app-logo { 
-    height: 100px; 
-    width: 100px;
+    height: 60px; /* Ajustado para que no sea enorme */
+    width: auto;
     object-fit: contain;
 }
 .divider-logo { color: #a3b1c6; font-size: 1.5rem; font-weight: 300; }
@@ -592,12 +612,10 @@ onMounted(async () => {
     padding: 0;
 }
 
-/* Estilo para el input del nombre del sketch */
 .sketch-name-container {
     margin: 0 15px;
     flex-grow: 0;
     min-width: 150px;
-    /* Ajuste para que se vea bien en desktop */
     display: flex;
     align-items: center;
 }
@@ -653,12 +671,10 @@ onMounted(async () => {
   gap: 15px;
 }
 
-/* Contenedor Blockly con Cuadrícula de Puntos */
 .blockly-container {
   flex-grow: 1;
   border-radius: 20px;
   overflow: hidden;
-  /* Fondo base */
   background-color: #e0e5ec;
 }
 
@@ -793,13 +809,5 @@ onMounted(async () => {
     .controls-wrapper { justify-content: center; }
     .sketch-name-container { width: 100%; margin: 10px 0; order: -1; }
     .sketch-name-input { width: 100%; }
-}
-
-@media (max-width: 480px) {
-    .hw-select { width: 100%; max-width: none; }
-    .hardware-controls { width: 100%; flex-direction: column; align-items: stretch; }
-    .port-selector { width: 100%; }
-    .port-select { flex-grow: 1; }
-    .actions-area { width: 100%; justify-content: space-between; margin-top: 10px; }
 }
 </style>
