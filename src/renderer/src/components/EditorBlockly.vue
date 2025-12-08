@@ -322,13 +322,13 @@ onMounted(async () => {
                 </option>
             </select>
 
-            <div class="port-selector">
-                <select v-model="selectedPort" class="hw-select port-select neu-input">
-                    <option value="" disabled>Puerto</option>
-                    <option v-for="p in availablePorts" :key="p.address" :value="p.address">
-                        {{ p.address }}
-                    </option>
-                </select>
+              <div class="port-selector">
+                  <select v-model="selectedPort" class="hw-select port-select neu-input">
+                      <option value="" disabled>Puerto</option>
+                      <option v-for="p in availablePorts" :key="p.address" :value="p.address">
+                          {{ p.address }} {{ (p.boards && p.boards.length > 0) ? `(${p.boards[0].name})` : '(Desconocido)' }}
+                      </option>
+                  </select>
                 <!-- ICONO REFRESH (SVG) -->
                 <button @click="refreshPorts" class="icon-btn refresh-btn neu-btn-icon" title="Refrescar Puertos">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -613,7 +613,7 @@ onMounted(async () => {
 }
 .sketch-name-input:focus {
     outline: none;
-    box-shadow: inset 6px 6px 12px #a3b1c6, inset -6px -6px 12px #ffffff; /* Sombra más profunda al foco */
+    box-shadow: inset 6px 6px 12px #a3b1c6, inset -6px -6px 12px #ffffff;
 }
 
 .actions-area {
@@ -662,10 +662,9 @@ onMounted(async () => {
   background-color: #e0e5ec;
 }
 
-/* Patrón de puntos usando gradientes radiales */
 .dot-grid-background {
   background-image: radial-gradient(#a3b1c6 1.5px, transparent 1.5px);
-  background-size: 20px 20px; /* Tamaño de la celda de la cuadrícula */
+  background-size: 20px 20px;
   background-position: 0 0;
 }
 
@@ -792,8 +791,7 @@ onMounted(async () => {
     .right-sidebar { width: 100%; height: 350px; }
     .top-bar { justify-content: center; }
     .controls-wrapper { justify-content: center; }
-    /* Ajuste responsivo para el input del sketch: ancho completo y margen */
-    .sketch-name-container { width: 100%; margin: 10px 0; order: -1; } /* Mueve el input arriba en móviles */
+    .sketch-name-container { width: 100%; margin: 10px 0; order: -1; }
     .sketch-name-input { width: 100%; }
 }
 
