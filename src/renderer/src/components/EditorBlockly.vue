@@ -3,80 +3,234 @@ import { onMounted, ref } from 'vue';
 import * as Blockly from 'blockly';
 import * as En from 'blockly/msg/en';
 import 'blockly/blocks'; 
-
-// IMPORTANTE: Tu cerebro Arduino
 import ArduinoGenerator from '../arduino_core.js'; 
+
+import logo2 from '../../../../resources/logo_m4rk.webp'; 
+import logo1 from '../../../../resources/logo_RM.png';
 
 Blockly.setLocale(En);
 
+// Refs de UI
 const blocklyDiv = ref(null);
 const generatedCode = ref("");
 const generatedXml = ref("");
-const sketchName = ref("Sketch_Name");
-const outputLog = ref("Arduino IDE output: Listo para compilar.");
+const outputLog = ref("Bienvenido a MarkRobot IDE.\nSelecciona una placa y puerto para comenzar.");
+const isCompiling = ref(false);
+const isUploading = ref(false);
+const isInstalling = ref(false);
+const showOutput = ref(true); 
+const sketchName = ref("MySketch");
+
+// Refs de Hardware
+const availablePorts = ref([]);
+const selectedPort = ref("");
+const allKnownBoards = ref([]); 
+const selectedBoardFqbn = ref("arduino:avr:uno"); 
+
 let workspace = null;
 
-// ==========================================
-// TOOLBOX (Configuración completa)
-// ==========================================
+// GESTIÓN DE HARDWARE
+
+async function refreshPorts() {
+  if (!window.api) return;
+  outputLog.value += "\nBuscando placas conectadas...";
+  
+  try {
+    const ports = await window.api.listBoards(); 
+    availablePorts.value = ports;
+    
+    if (ports.length > 0) {
+      const first = ports[0];
+      if (first.address) selectedPort.value = first.address;
+      if (first.boards && first.boards.length > 0) {
+        selectedBoardFqbn.value = first.boards[0].fqbn;
+        outputLog.value += `\nAuto-detectado: ${first.boards[0].name} en ${first.address}`;
+      }
+    } else {
+      outputLog.value += "\nNo se encontraron placas conectadas.";
+    }
+  } catch (e) {
+    outputLog.value += `\nError listando puertos: ${e.message}`;
+  }
+}
+
+async function verifyCode() {
+  if (isCompiling.value) return;
+  isCompiling.value = true;
+  showOutput.value = true;
+  outputLog.value = "Iniciando compilación...\n";
+  updateContent(); 
+
+  try {
+    const res = await window.api.compile({
+      code: generatedCode.value,
+      fqbn: selectedBoardFqbn.value
+    });
+    outputLog.value += res.log;
+    if (res.success) outputLog.value += "\n✅ VERIFICADO.";
+  } catch (e) {
+    outputLog.value += "\nError crítico: " + e.message;
+  } finally {
+    isCompiling.value = false;
+  }
+}
+
+async function uploadCode() {
+  if (isUploading.value) return;
+  if (!selectedPort.value) {
+    alert("Por favor selecciona un PUERTO primero.");
+    return;
+  }
+  
+  isUploading.value = true;
+  showOutput.value = true;
+  outputLog.value = "Iniciando subida...\n(Esto compilará el código primero si es necesario)\n";
+  
+  try {
+    const compileRes = await window.api.compile({
+      code: generatedCode.value,
+      fqbn: selectedBoardFqbn.value
+    });
+    
+    if (!compileRes.success) {
+      outputLog.value += compileRes.log + "\n⚠️ Subida cancelada por error de compilación.";
+      isUploading.value = false;
+      return;
+    }
+
+    outputLog.value += "\nCompilación OK. Subiendo a la placa...\n";
+    const uploadRes = await window.api.upload({
+      port: selectedPort.value,
+      fqbn: selectedBoardFqbn.value
+    });
+    
+    outputLog.value += uploadRes.log;
+    if (uploadRes.success) outputLog.value += "\n🚀 SUBIDA COMPLETADA.";
+  } catch (e) {
+    outputLog.value += "\nError crítico en subida: " + e.message;
+  } finally {
+    isUploading.value = false;
+  }
+}
+
+async function installAvrCore() {
+  if (isInstalling.value) return;
+  
+  if(!confirm("Esto descargará el soporte para Arduino Uno/Nano/Mega desde internet. ¿Desea continuar?")) return;
+
+  isInstalling.value = true;
+  showOutput.value = true;
+  outputLog.value += "\n⬇ Iniciando descarga e instalación del núcleo 'arduino:avr'...\nEsto puede tardar unos minutos dependiendo de tu conexión.\n";
+  
+  try {
+    const res = await window.api.installCore('arduino:avr');
+    outputLog.value += res.log;
+    
+    if (res.success) {
+        outputLog.value += "\n✅ Core AVR instalado correctamente. ¡Ahora puedes compilar offline!";
+        if(window.api) {
+            window.api.listAllBoards().then(data => {
+                if(data.boards) allKnownBoards.value = data.boards;
+            });
+        }
+    } else {
+        outputLog.value += "\n⚠️ Hubo un error en la instalación. Revisa tu conexión a internet.";
+    }
+  } catch (e) {
+    outputLog.value += "\nError crítico al instalar core: " + e.message;
+  } finally {
+    isInstalling.value = false;
+  }
+}
+
+async function openInArduino() {
+  outputLog.value += "\nAbriendo en Arduino IDE...";
+  await window.api.openIde(generatedCode.value);
+}
+
+async function saveSketch() {
+  if (window.api) {
+    // Usamos el nombre del sketch para sugerir el nombre del archivo
+    // Nota: window.api.saveFile debe estar preparado en el backend para recibir
+    // un objeto { content, defaultName } o similar, si no, aquí solo pasamos el contenido.
+    // Asumiremos que el backend (main process) usa dialog.showSaveDialog.
+    // Podemos pasar el nombre por separado si la API lo permite, pero
+    // por compatibilidad con la API actual, guardamos el contenido.
+    // Una mejora futura en backend sería: saveFile(content, defaultPath)
+    
+    // Si quisieras implementar el nombre por defecto, necesitarías actualizar src/preload/index.js y src/main/index.js
+    // para aceptar un segundo argumento.
+    // Por ahora, simulamos que el usuario pone el nombre, pero mantenemos el input actualizado.
+    
+    const result = await window.api.saveFile(generatedXml.value);
+    if(result.success) outputLog.value += `\nProyecto '${sketchName.value}' guardado.`;
+  }
+}
+
+async function loadSketch() {
+  if (window.api) {
+    const result = await window.api.openFile();
+    if(!result.canceled && result.content) {
+        workspace.clear();
+        const xml = Blockly.utils.xml.textToDom(result.content);
+        Blockly.Xml.domToWorkspace(xml, workspace);
+        outputLog.value += "\nProyecto cargado.";
+    }
+  }
+}
+
+function runSimulation() {
+    showOutput.value = true;
+    outputLog.value += "\n--- SIMULACIÓN DE EJECUCIÓN ---\n";
+    outputLog.value += "El código C++ generado es:\n";
+    outputLog.value += generatedCode.value;
+    outputLog.value += "\n-------------------------------\n";
+    alert("Código listo para ser ejecutado en la placa. Revisa la consola de salida.");
+}
+
+// TOOLBOX Y BLOCKLY
+
 const toolbox = {
   kind: 'categoryToolbox',
   contents: [
-    { kind: 'category', name: 'Logic', colour: '#5C81A6', contents: [
-      { kind: 'block', type: 'controls_if' },
-      { kind: 'block', type: 'logic_compare' },
-      { kind: 'block', type: 'logic_operation' },
-      { kind: 'block', type: 'logic_negate' },
-      { kind: 'block', type: 'logic_boolean' },
-      { kind: 'block', type: 'logic_null' },
-      { kind: 'block', type: 'logic_ternary' }
-    ]},
-    { kind: 'category', name: 'Loops', colour: '#5CA65C', contents: [
-      { kind: 'block', type: 'controls_repeat_ext', inputs: { TIMES: { shadow: { type: 'math_number', fields: { NUM: 10 } } } } },
-      { kind: 'block', type: 'controls_whileUntil' },
-      { kind: 'block', type: 'controls_for', inputs: { FROM: { shadow: { type: 'math_number', fields: { NUM: 1 } } }, TO: { shadow: { type: 'math_number', fields: { NUM: 10 } } }, BY: { shadow: { type: 'math_number', fields: { NUM: 1 } } } } },
-      { kind: 'block', type: 'controls_flow_statements' }
-    ]},
-    { kind: 'category', name: 'Math', colour: '#5C68A6', contents: [
-      { kind: 'block', type: 'math_number' },
-      { kind: 'block', type: 'math_arithmetic', inputs: { A: { shadow: { type: 'math_number', fields: { NUM: 1 } } }, B: { shadow: { type: 'math_number', fields: { NUM: 1 } } } } },
-      { kind: 'block', type: 'math_single', inputs: { NUM: { shadow: { type: 'math_number', fields: { NUM: 9 } } } } },
-      { kind: 'block', type: 'math_trig', inputs: { NUM: { shadow: { type: 'math_number', fields: { NUM: 45 } } } } },
-      { kind: 'block', type: 'math_constant' },
-      { kind: 'block', type: 'math_number_property', inputs: { NUMBER_TO_CHECK: { shadow: { type: 'math_number', fields: { NUM: 0 } } } } },
-      { kind: 'block', type: 'math_round' },
-      { kind: 'block', type: 'math_modulo', inputs: { DIVIDEND: { shadow: { type: 'math_number', fields: { NUM: 64 } } }, DIVISOR: { shadow: { type: 'math_number', fields: { NUM: 10 } } } } },
-      { kind: 'block', type: 'math_constrain', inputs: { VALUE: { shadow: { type: 'math_number', fields: { NUM: 50 } } }, LOW: { shadow: { type: 'math_number', fields: { NUM: 1 } } }, HIGH: { shadow: { type: 'math_number', fields: { NUM: 100 } } } } },
-      { kind: 'block', type: 'math_random_int', inputs: { FROM: { shadow: { type: 'math_number', fields: { NUM: 1 } } }, TO: { shadow: { type: 'math_number', fields: { NUM: 100 } } } } },
-      { kind: 'block', type: 'math_map', inputs: { NUM: { shadow: { type: 'math_number', fields: { NUM: 512 } } }, MAX: { shadow: { type: 'math_number', fields: { NUM: 255 } } } } }
-    ]},
-    { kind: 'category', name: 'Text', colour: '#5CA699', contents: [
-      { kind: 'block', type: 'text' },
-      { kind: 'block', type: 'text_join' },
-      { kind: 'block', type: 'text_append', inputs: { TEXT: { shadow: { type: 'text' } } } },
-      { kind: 'block', type: 'text_length', inputs: { VALUE: { shadow: { type: 'text', fields: { TEXT: 'abc' } } } } },
-      { kind: 'block', type: 'text_isEmpty', inputs: { VALUE: { shadow: { type: 'text', fields: { TEXT: '' } } } } },
-      { kind: 'block', type: 'text_print', inputs: { TEXT: { shadow: { type: 'text', fields: { TEXT: 'abc' } } } } }
-    ]},
     { kind: 'category', name: 'Variables', colour: '#A65C81', contents: [
+      { kind: 'block', type: 'arduino_start' },
       { kind: 'button', text: 'Crear Variable', callbackKey: 'CREATE_VARIABLE' },
       { kind: 'block', type: 'variables_get' },
       { kind: 'block', type: 'variables_set' },
-      { kind: 'block', type: 'variables_set_type' },
-      { kind: 'block', type: 'type_cast' }
+      { kind: 'block', type: 'variables_set_type' }
     ]},
-    { kind: 'category', name: 'Functions', colour: '#9A5CA6', custom: 'PROCEDURE' },
+    { kind: 'category', name: 'Lógica', colour: '#5C81A6', contents: [
+      { kind: 'block', type: 'controls_if' },
+      { kind: 'block', type: 'logic_compare' },
+      { kind: 'block', type: 'logic_operation' },
+      { kind: 'block', type: 'logic_boolean' },
+      { kind: 'block', type: 'logic_negate' }
+    ]},
+    { kind: 'category', name: 'Bucles', colour: '#5CA65C', contents: [
+      { kind: 'block', type: 'controls_repeat_ext', inputs: { TIMES: { shadow: { type: 'math_number', fields: { NUM: 10 } } } } },
+      { kind: 'block', type: 'controls_whileUntil' },
+      { kind: 'block', type: 'controls_for', inputs: { FROM: { shadow: { type: 'math_number', fields: { NUM: 1 } } }, TO: { shadow: { type: 'math_number', fields: { NUM: 10 } } }, BY: { shadow: { type: 'math_number', fields: { NUM: 1 } } } } },
+    ]},
+    { kind: 'category', name: 'Matemáticas', colour: '#5C68A6', contents: [
+      { kind: 'block', type: 'math_number' },
+      { kind: 'block', type: 'math_arithmetic' },
+      { kind: 'block', type: 'math_random_int' },
+      { kind: 'block', type: 'math_map' }
+    ]},
+    { kind: 'category', name: 'Texto', colour: '#5CA699', contents: [
+      { kind: 'block', type: 'text' },
+      { kind: 'block', type: 'text_print' },
+      { kind: 'block', type: 'text_join' }
+    ]},
     { kind: 'sep' },
-    { kind: 'category', name: 'Input/Output', colour: '#5C81A6', contents: [
+    { kind: 'category', name: 'Entrada/Salida', colour: '#5C81A6', contents: [
       { kind: 'block', type: 'digital_write' },
       { kind: 'block', type: 'digital_read' },
       { kind: 'block', type: 'analog_read' },
-      { kind: 'block', type: 'analog_write', inputs: { NUM: { shadow: { type: 'math_number', fields: { NUM: 128 } } } } }
+      { kind: 'block', type: 'analog_write' }
     ]},
-    { kind: 'category', name: 'Time', colour: '#5CA65C', contents: [ { kind: 'block', type: 'custom_delay' } ]},
-    { kind: 'category', name: 'Audio', colour: '#A65C5C', contents: [ { kind: 'block', type: 'play_tone' } ]},
-    { kind: 'category', name: 'Motors', colour: '#A68C5C', contents: [ { kind: 'block', type: 'servo_move' } ]},
-    { kind: 'category', name: 'Comms', colour: '#995CA6', contents: [ { kind: 'block', type: 'serial_print' } ]},
+    { kind: 'category', name: 'Tiempo', colour: '#5CA65C', contents: [ { kind: 'block', type: 'custom_delay' } ]},
     { kind: 'category', name: 'RoboticMinds', colour: '#8E44AD', contents: [
       { kind: 'block', type: 'rm_ultrasonic' },
       { kind: 'block', type: 'rm_motor' },
@@ -86,85 +240,41 @@ const toolbox = {
   ]
 };
 
-// ==========================================
-// FUNCIONES LÓGICAS
-// ==========================================
-
-const updateContent = () => {
+function updateContent() {
   if (!workspace) return;
   try {
-    // 1. Generar Código C++
     const code = ArduinoGenerator.workspaceToCode(workspace);
     generatedCode.value = code;
-
-    // 2. Generar XML
     const xmlDom = Blockly.Xml.workspaceToDom(workspace);
-    const xmlText = Blockly.Xml.domToPrettyText(xmlDom);
-    generatedXml.value = xmlText;
+    generatedXml.value = Blockly.Xml.domToPrettyText(xmlDom);
   } catch (e) {
     console.error(e);
-    outputLog.value = "Error: " + e.message;
   }
-};
+}
 
-const saveSketch = async () => {
-  if (window.api && window.api.saveFile) {
-    // Guardamos el código .INO
-    const result = await window.api.saveFile(generatedCode.value);
-    if(result.success) outputLog.value = "Guardado exitosamente.";
-  } else {
-    // Fallback web (descarga archivo)
-    const element = document.createElement('a');
-    const file = new Blob([generatedCode.value], {type: 'text/plain'});
-    element.href = URL.createObjectURL(file);
-    element.download = sketchName.value + ".ino";
-    document.body.appendChild(element);
-    element.click();
-    outputLog.value = "Archivo descargado (Modo Web).";
-  }
-};
-
-const loadSketch = async () => {
-    // Aquí podrías implementar la carga de XML usando window.api.openFile
-    // y luego Blockly.Xml.domToWorkspace
-    if (window.api && window.api.openFile) {
-        const result = await window.api.openFile();
-        if(!result.canceled && result.content) {
-             // Nota: Para cargar, necesitaríamos que el archivo guardado fuera JSON o XML, no C++.
-             // Por simplicidad, este botón es placeholder o para cargar XML si guardaras XML.
-             outputLog.value = "Función de carga de .ino no reversible a bloques (Solo XML/JSON soportado).";
-        }
-    }
-};
-
-const clearWorkspace = () => {
+function clearWorkspace() {
   if(confirm("¿Estás seguro de borrar todo?")) {
     workspace.clear();
-    // Restaurar bloque inicial
-    const startBlock = workspace.newBlock('arduino_start');
-    startBlock.initSvg();
-    startBlock.render();
-    startBlock.moveBy(50, 50);
-    outputLog.value = "Espacio de trabajo limpiado.";
   }
-};
+}
 
-onMounted(() => {
+onMounted(async () => {
   if (blocklyDiv.value) {
     workspace = Blockly.inject(blocklyDiv.value, {
       toolbox: toolbox,
       scrollbars: true,
       media: 'media/', 
       zoom: { controls: true, wheel: true, startScale: 1.0, maxScale: 3, minScale: 0.3, scaleSpeed: 1.2 },
-      grid: { spacing: 20, length: 3, colour: '#e5e7eb', snap: true },
-      renderer: 'geras', // Estilo visual clásico pero limpio
+      // Eliminamos el grid por defecto de Blockly para usar nuestro fondo CSS
+      // grid: { spacing: 20, length: 3, colour: '#e0e5ec', snap: true }, 
+      renderer: 'geras',
       theme: {
         'base': 'classic',
         'fontStyle': { 'family': 'Segoe UI, sans-serif', 'weight': 'bold', 'size': 12 },
         'componentStyles': { 
-            'workspaceBackgroundColour': '#ffffff', 
-            'toolboxBackgroundColour': '#f3f4f6', 
-            'flyoutBackgroundColour': '#e5e7eb'
+            'workspaceBackgroundColour': 'transparent', // Transparente para ver el fondo CSS
+            'toolboxBackgroundColour': '#e0e5ec', 
+            'flyoutBackgroundColour': '#e0e5eccc' 
         }
       }
     });
@@ -172,17 +282,17 @@ onMounted(() => {
     workspace.registerButtonCallback('CREATE_VARIABLE', (button) => {
       Blockly.Variables.createVariableButtonHandler(button.getTargetWorkspace(), null, '');
     });
-
-    const startBlock = workspace.newBlock('arduino_start');
-    startBlock.initSvg();
-    startBlock.render();
-    startBlock.moveBy(50, 50);
-
+    
     workspace.addChangeListener(updateContent);
     window.addEventListener('resize', () => Blockly.svgResize(workspace));
     
-    // Inicialización inmediata
-    setTimeout(updateContent, 100);
+    refreshPorts();
+    
+    if(window.api) {
+        window.api.listAllBoards().then(data => {
+            if(data.boards) allKnownBoards.value = data.boards;
+        });
+    }
   }
 });
 </script>
@@ -190,241 +300,508 @@ onMounted(() => {
 <template>
   <div class="app-layout">
     
-    <!-- 1. BARRA SUPERIOR -->
+    <!-- BARRA SUPERIOR -->
     <header class="top-bar">
-        <div class="logo-area">
-          <span class="brand-text"><span style="color:#6b7280">robotic</span><span style="color:#22c55e">minds</span> | <span style="color:#0ea5e9; font-weight:800">MARK</span><span style="color:#f59e0b">ROBOT</span></span>
+      <!-- LOGOS: Ahora sin card y con dimensiones iguales -->
+      <div class="logo-area">
+          <img :src="logo1" alt="Logo 1" class="app-logo" />
+          <span class="divider-logo">|</span>
+          <img :src="logo2" alt="Logo 2" class="app-logo" /> <!-- Misma clase para ambos -->
       </div>
       
-      <div class="sketch-input-container">
-        <span class="edit-icon">✏️</span>
-        <input type="text" v-model="sketchName" class="sketch-input" />
-      </div>
+      <div class="controls-wrapper">
+        <div class="hardware-controls neu-flat">
+            <select v-model="selectedBoardFqbn" class="hw-select neu-input" title="Seleccionar Placa">
+                <option value="arduino:avr:uno">Arduino Uno</option>
+                <option value="arduino:avr:nano">Arduino Nano</option>
+                <option value="arduino:avr:mega">Arduino Mega</option>
+                <option value="esp8266:esp8266:nodemcuv2">NodeMCU 1.0</option>
+                <option value="esp32:esp32:esp32">ESP32 Dev Module</option>
+                <option v-for="b in allKnownBoards" :key="b.fqbn" :value="b.fqbn">
+                    {{ b.name }}
+                </option>
+            </select>
 
-      <div class="actions-area">
-        <button class="action-btn" @click="loadSketch" title="Abrir Proyecto">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 13h-3v-3h3v3z"/><path d="M12 3h-6a2 2 0 0 0 -2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-12z"/><path d="M9 3v18"/><path d="M21 9h-6"/></svg>
-          <span>Open</span>
-        </button>
-        <button class="action-btn" @click="saveSketch" title="Guardar .INO">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-          <span>Save</span>
-        </button>
-        <button class="action-btn delete-btn" @click="clearWorkspace" title="Borrar Todo">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
-          <span>Delete All</span>
-        </button>
+            <div class="port-selector">
+                <select v-model="selectedPort" class="hw-select port-select neu-input">
+                    <option value="" disabled>Puerto</option>
+                    <option v-for="p in availablePorts" :key="p.address" :value="p.address">
+                        {{ p.address }}
+                    </option>
+                </select>
+                <!-- ICONO REFRESH (SVG) -->
+                <button @click="refreshPorts" class="icon-btn refresh-btn neu-btn-icon" title="Refrescar Puertos">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- SKETCH NAME INPUT (NUEVO) -->
+        <div class="sketch-name-container">
+            <input 
+                type="text" 
+                v-model="sketchName" 
+                class="sketch-name-input neu-inset" 
+                placeholder="Sketch_Name" 
+            />
+        </div>
+
+        <div class="actions-area">
+            <!-- VERIFICAR -->
+            <button class="action-btn neu-btn verify-btn" @click="verifyCode" :disabled="isCompiling" title="Verificar/Compilar">
+                <span v-if="isCompiling">
+                    <svg class="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                </span>
+                <span v-else>
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                </span> 
+                <span class="btn-text">Verificar</span>
+            </button>
+            
+            <!-- SUBIR -->
+            <button class="action-btn neu-btn upload-btn" @click="uploadCode" :disabled="isUploading" title="Subir a Placa">
+                <span v-if="isUploading">
+                    <svg class="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                </span>
+                <span v-else>
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                </span> 
+                <span class="btn-text">Subir</span>
+            </button>
+
+            <!-- EJECUTAR -->
+            <button class="action-btn neu-btn run-btn" @click="runSimulation" title="Ejecutar Salida">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span class="btn-text">Ejecutar</span>
+            </button>
+
+            <div class="divider"></div>
+
+            <!-- INSTALAR CORE (ICONO DESCARGA) -->
+            <button class="action-btn secondary-btn neu-btn-icon" @click="installAvrCore" :disabled="isInstalling" title="Instalar Soporte Arduino Uno/Nano">
+                <span v-if="isInstalling">
+                    <svg class="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                </span>
+                <span v-else>
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                </span>
+            </button>
+
+            <!-- ABRIR IDE (ICONO LINK) -->
+            <button class="action-btn secondary-btn neu-btn" @click="openInArduino" title="Abrir en IDE Nativo">
+                <span class="btn-text">IDE</span> 
+                <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+            </button>
+            
+            <!-- GUARDAR (ICONO DISK) -->
+            <button class="action-btn secondary-btn neu-btn-icon" @click="saveSketch" title="Guardar Proyecto">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
+            </button>
+            
+            <!-- ABRIR (ICONO FOLDER) -->
+            <button class="action-btn secondary-btn neu-btn-icon" @click="loadSketch" title="Abrir Proyecto">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z"></path></svg>
+            </button>
+            
+            <!-- LIMPIAR (ICONO TRASH) -->
+            <button class="action-btn delete-btn neu-btn-icon danger" @click="clearWorkspace" title="Limpiar">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            </button>
+        </div>
       </div>
     </header>
 
-    <!-- 2. CONTENIDO PRINCIPAL -->
     <main class="main-content">
-      <!-- Izquierda: Blockly (La toolbox es inyectada por Blockly dentro de este div) -->
-      <div ref="blocklyDiv" class="blockly-container"></div>
+      <!-- BLOCKLY CON FONDO DE PUNTOS -->
+      <div ref="blocklyDiv" class="blockly-container neu-inset-large dot-grid-background"></div>
 
-      <!-- Derecha: Paneles de Código -->
-      <aside class="right-sidebar">
-        <!-- Panel 1: Código C++ -->
-        <div class="panel-box">
-          <div class="panel-header">
-            <span class="panel-icon">{ }</span> Arduino Source Code
-          </div>
-          <textarea class="panel-content code-font" readonly :value="generatedCode"></textarea>
+      <aside class="right-sidebar neu-flat">
+        <div class="tabs">
+            <button class="tab active">C++ Code</button>
+        </div>
+        
+        <div class="code-panel">
+            <textarea class="panel-content code-font neu-inset" readonly :value="generatedCode"></textarea>
         </div>
 
-        <!-- Panel 2: XML -->
-        <div class="panel-box" style="margin-top: 10px; flex-grow: 0.5;">
-          <div class="panel-header">
-            <span class="panel-icon">&lt; &gt;</span> Blocks XML
-          </div>
-          <textarea class="panel-content code-font xml-font" readonly :value="generatedXml"></textarea>
+        <div class="output-panel neu-flat-top" :class="{ 'collapsed': !showOutput }">
+            <div class="panel-header" @click="showOutput = !showOutput">
+                <div class="header-title">
+                    <span class="toggle-icon">
+                        <!-- CHEVRON UP/DOWN -->
+                        <svg v-if="showOutput" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path></svg>
+                    </span>
+                    <span>Output Console</span>
+                </div>
+                <button class="clear-console neu-btn-small" @click.stop="outputLog = ''">
+                    Limpiar
+                </button>
+            </div>
+            <textarea v-show="showOutput" class="console-content neu-inset" readonly :value="outputLog"></textarea>
         </div>
       </aside>
     </main>
-
-    <!-- 3. BARRA INFERIOR -->
-    <footer class="bottom-bar">
-      <div class="toggle-icon">⇅</div>
-      <span>{{ outputLog }}</span>
-    </footer>
-
   </div>
 </template>
 
 <style scoped>
-/* ESTRUCTURA GENERAL */
+/* VARIABLES NEUMORFISM */
+:root {
+    --bg-color: #e0e5ec;
+    --shadow-light: #ffffff;
+    --shadow-dark: #a3b1c6;
+    --text-color: #4d5b6b;
+    --accent-color: #6d7fcc;
+    --danger-color: #e57373;
+}
+
 .app-layout {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  width: 100vw;
-  background-color: #f3f4f6; /* Gris muy claro de fondo */
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  overflow: hidden;
+  background-color: #e0e5ec;
+  font-family: 'Segoe UI', sans-serif;
+  color: #4d5b6b;
 }
 
-/* TOP BAR */
+/* UTILIDADES SVG */
+.w-5 { width: 20px; }
+.h-5 { height: 20px; }
+.w-4 { width: 16px; }
+.h-4 { height: 16px; }
+.ml-1 { margin-left: 4px; }
+.animate-spin { animation: spin 1s linear infinite; }
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* =========================================
+   ESTILOS NEUMÓRFICOS
+   ========================================= */
+
+.neu-btn, .neu-btn-icon {
+    border-radius: 10px;
+    background: #e0e5ec;
+    box-shadow: 6px 6px 12px #a3b1c6, -6px -6px 12px #ffffff;
+    border: none;
+    color: #4d5b6b;
+    transition: all 0.2s ease;
+}
+
+.neu-btn:hover, .neu-btn-icon:hover {
+    transform: translateY(-1px);
+    box-shadow: 8px 8px 16px #a3b1c6, -8px -8px 16px #ffffff;
+    color: #6d7fcc; /* Accent color on hover */
+}
+
+.neu-btn:active, .neu-btn-icon:active {
+    box-shadow: inset 4px 4px 8px #a3b1c6, inset -4px -4px 8px #ffffff;
+    transform: translateY(1px);
+}
+
+.neu-input, .neu-inset {
+    border-radius: 10px;
+    background: #e0e5ec;
+    box-shadow: inset 5px 5px 10px #a3b1c6, inset -5px -5px 10px #ffffff;
+    border: none;
+    padding: 8px 12px;
+}
+
+.neu-inset-large {
+    box-shadow: inset 8px 8px 16px #a3b1c6, inset -8px -8px 16px #ffffff;
+}
+
+.neu-flat {
+    background: #e0e5ec;
+    box-shadow: 5px 5px 10px #a3b1c6, -5px -5px 10px #ffffff;
+}
+
+/* =========================================
+   LAYOUT
+   ========================================= */
+
 .top-bar {
-  height: 60px;
-  background: linear-gradient(180deg, #eef2ff 0%, #e0e7ff 100%);
-  border-bottom: 1px solid #cbd5e1;
+  min-height: 70px;
+  background: #e0e5ec;
   display: flex;
   align-items: center;
-  padding: 0 20px;
-  justify-content: space-between;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  padding: 10px 20px;
+  gap: 20px;
+  flex-wrap: wrap;
+  z-index: 10;
 }
 
 .logo-area {
-  font-weight: bold;
-  font-size: 1.2rem;
   display: flex;
   align-items: center;
-  width: 250px;
+  gap: 15px;
+  min-width: 120px;
 }
 
-.sketch-input-container {
-  display: flex;
-  align-items: center;
-  background: #ffffff;
-  padding: 5px 15px;
-  border-radius: 20px;
-  box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
-  border: 1px solid #d1d5db;
+/* LOGOS IGUALES */
+.app-logo { 
+    height: 100px; 
+    width: 100px;
+    object-fit: contain;
+}
+.divider-logo { color: #a3b1c6; font-size: 1.5rem; font-weight: 300; }
+
+.controls-wrapper {
+    display: flex;
+    flex-grow: 1;
+    align-items: center;
+    justify-content: space-between;
+    gap: 15px;
+    flex-wrap: wrap;
 }
 
-.edit-icon {
-  margin-right: 8px;
-  color: #6b7280;
+.hardware-controls {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    padding: 10px 15px;
+    border-radius: 15px;
+    flex-wrap: wrap;
 }
 
-.sketch-input {
-  border: none;
-  outline: none;
-  font-size: 1rem;
-  font-weight: 600;
-  color: #374151;
-  font-style: italic;
-  width: 150px;
+.hw-select {
+    color: #4d5b6b;
+    font-weight: 600;
+    min-width: 140px;
+    outline: none;
+}
+
+.port-selector {
+    display: flex;
+    gap: 10px;
+}
+
+.refresh-btn {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    cursor: pointer;
+    padding: 0;
+}
+
+/* Estilo para el input del nombre del sketch */
+.sketch-name-container {
+    margin: 0 15px;
+    flex-grow: 0;
+    min-width: 150px;
+    /* Ajuste para que se vea bien en desktop */
+    display: flex;
+    align-items: center;
+}
+
+.sketch-name-input {
+    width: 100%;
+    min-width: 150px;
+    text-align: center;
+    font-weight: bold;
+    color: #6d7fcc;
+    font-size: 1rem;
+    transition: all 0.3s ease;
+}
+.sketch-name-input:focus {
+    outline: none;
+    box-shadow: inset 6px 6px 12px #a3b1c6, inset -6px -6px 12px #ffffff; /* Sombra más profunda al foco */
 }
 
 .actions-area {
-  display: flex;
-  gap: 15px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
 }
 
 .action-btn {
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.9rem;
-  color: #4b5563;
-  font-weight: 500;
-  transition: color 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px 16px;
+    font-weight: 700;
+    cursor: pointer;
+    font-size: 0.9rem;
+    white-space: nowrap;
 }
 
-.action-btn:hover {
-  color: #111827;
-}
+.verify-btn { color: #4a90e2; }
+.upload-btn { color: #27ae60; }
+.run-btn { color: #e67e22; }
+.danger { color: #e57373; }
+.danger:hover { color: #ff5252; }
 
-.delete-btn:hover {
-  color: #ef4444;
-}
+.divider { width: 1px; height: 30px; background: #cbd5e1; margin: 0 5px; opacity: 0.5; }
 
-/* MAIN CONTENT */
+/* SIDEBAR & CONTENT */
 .main-content {
   flex-grow: 1;
   display: flex;
   overflow: hidden;
-  padding: 10px;
-  gap: 10px;
+  position: relative;
+  padding: 15px;
+  gap: 15px;
 }
 
+/* Contenedor Blockly con Cuadrícula de Puntos */
 .blockly-container {
   flex-grow: 1;
-  border-radius: 8px;
+  border-radius: 20px;
   overflow: hidden;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-  background: white;
-  border: 1px solid #e5e7eb;
+  /* Fondo base */
+  background-color: #e0e5ec;
+}
+
+/* Patrón de puntos usando gradientes radiales */
+.dot-grid-background {
+  background-image: radial-gradient(#a3b1c6 1.5px, transparent 1.5px);
+  background-size: 20px 20px; /* Tamaño de la celda de la cuadrícula */
+  background-position: 0 0;
 }
 
 .right-sidebar {
-  width: 400px;
+  width: 350px;
+  border-radius: 20px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  transition: width 0.3s ease;
+  flex-shrink: 0;
+  padding: 15px;
+  gap: 15px;
 }
 
-/* PANELES DERECHOS */
-.panel-box {
-  background: #f0f4f8;
-  border: 1px solid #dae2ed;
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  flex-grow: 1;
-  overflow: hidden;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+.tabs {
+    display: flex;
+    margin-bottom: 5px;
 }
 
-.panel-header {
-  background: #e2e8f0;
-  padding: 8px 15px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #475569;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border-bottom: 1px solid #cbd5e1;
+.tab {
+    background: transparent;
+    border: none;
+    color: #4d5b6b;
+    padding: 5px 15px;
+    cursor: pointer;
+    font-weight: 700;
+    border-bottom: 3px solid transparent;
 }
 
-.panel-icon {
-  font-family: monospace;
-  font-weight: bold;
-  color: #3b82f6;
+.tab.active {
+    color: #6d7fcc;
+    border-bottom-color: #6d7fcc;
+    text-shadow: 1px 1px 2px #fff;
+}
+
+.code-panel {
+    flex-grow: 1;
+    position: relative;
+    overflow: hidden;
+    border-radius: 15px;
 }
 
 .panel-content {
-  flex-grow: 1;
-  border: none;
-  resize: none;
-  padding: 12px;
-  background: #f8fafc;
-  color: #334155;
-  outline: none;
-  font-size: 0.85rem;
+    width: 100%;
+    height: 100%;
+    color: #4d5b6b;
+    resize: none;
+    font-family: 'Consolas', monospace;
+    font-size: 0.85rem;
+    outline: none;
+    background: #e0e5ec;
 }
 
-.code-font {
-  font-family: 'Consolas', 'Monaco', monospace;
-  color: #0d9488; /* Color similar a Arduino IDE */
+.output-panel {
+    height: 200px;
+    display: flex;
+    flex-direction: column;
+    transition: height 0.3s ease;
+    border-radius: 15px;
+    background: #e0e5ec;
+    box-shadow: 5px 5px 10px #a3b1c6, -5px -5px 10px #ffffff;
+    overflow: hidden;
 }
 
-.xml-font {
-  color: #64748b;
-  font-size: 0.8rem;
+.output-panel.collapsed {
+    height: 45px;
 }
 
-/* BOTTOM BAR */
-.bottom-bar {
-  height: 35px;
-  background: #e2e8f0;
-  border-top: 1px solid #cbd5e1;
-  display: flex;
-  align-items: center;
-  padding: 0 15px;
-  font-size: 0.8rem;
-  color: #475569;
-  gap: 10px;
+.panel-header {
+    padding: 10px 15px;
+    background: #e0e5ec;
+    color: #4d5b6b;
+    font-size: 0.85rem;
+    font-weight: bold;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    border-bottom: 1px solid rgba(163, 177, 198, 0.3);
 }
 
-.toggle-icon {
-  font-weight: bold;
-  cursor: pointer;
+.panel-header:hover {
+    color: #6d7fcc;
+}
+
+.header-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.neu-btn-small {
+    border: none;
+    background: transparent;
+    color: #a3b1c6;
+    cursor: pointer;
+    font-size: 0.75rem;
+    padding: 4px 8px;
+    border-radius: 6px;
+    box-shadow: 3px 3px 6px #a3b1c6, -3px -3px 6px #ffffff;
+}
+.neu-btn-small:hover { color: #e57373; }
+
+.console-content {
+    flex-grow: 1;
+    background: #e0e5ec;
+    color: #27ae60;
+    resize: none;
+    outline: none;
+    margin: 10px;
+    border-radius: 10px;
+}
+
+/* RESPONSIVE */
+@media (max-width: 900px) {
+    .btn-text { display: none; }
+    .action-btn { padding: 10px; border-radius: 50%; width: 40px; height: 40px; }
+    .right-sidebar { width: 250px; }
+}
+
+@media (max-width: 768px) {
+    .main-content { flex-direction: column; }
+    .right-sidebar { width: 100%; height: 350px; }
+    .top-bar { justify-content: center; }
+    .controls-wrapper { justify-content: center; }
+    /* Ajuste responsivo para el input del sketch: ancho completo y margen */
+    .sketch-name-container { width: 100%; margin: 10px 0; order: -1; } /* Mueve el input arriba en móviles */
+    .sketch-name-input { width: 100%; }
+}
+
+@media (max-width: 480px) {
+    .hw-select { width: 100%; max-width: none; }
+    .hardware-controls { width: 100%; flex-direction: column; align-items: stretch; }
+    .port-selector { width: 100%; }
+    .port-select { flex-grow: 1; }
+    .actions-area { width: 100%; justify-content: space-between; margin-top: 10px; }
 }
 </style>

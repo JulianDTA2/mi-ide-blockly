@@ -5,6 +5,7 @@ import * as Blockly from 'blockly';
 // =========================================================
 const Arduino = new Blockly.Generator('Arduino');
 
+// Prioridad de operadores (Estándar C++)
 Arduino.ORDER_ATOMIC = 0;
 Arduino.ORDER_UNARY_POSTFIX = 1;
 Arduino.ORDER_UNARY_PREFIX = 2;
@@ -28,6 +29,11 @@ Arduino.init = function(workspace) {
   Arduino.variables_ = Object.create(null);   
 };
 
+/**
+ * Esta función es la MAGIA que elimina la necesidad del bloque "Inicio".
+ * Toma todo el código generado por los bloques sueltos ('code') 
+ * y lo mete automáticamente dentro de 'void loop()'.
+ */
 Arduino.finish = function(code) {
   var definitions = [];
   var variables = [];
@@ -40,6 +46,12 @@ Arduino.finish = function(code) {
   var allDefs = definitions.join('\n');
   var allVars = variables.join('\n');
   var allSetups = 'void setup() {\n  ' + setups.join('\n  ') + '\n}\n\n';
+  
+  // Si el usuario usa el bloque "Inicio Programa", el código ya vendrá encapsulado o estructurado.
+  // Pero para simplicidad, seguiremos envolviendo todo en loop() si no detectamos una estructura manual.
+  // Sin embargo, como el bloque 'arduino_start' generará simplemente su contenido, 
+  // la envoltura actual sigue funcionando bien para el contenido INTERNO del bloque.
+  
   var allLoop = 'void loop() {\n' + code + '\n}';
   
   return '// Generado por RoboticMinds IDE\n\n' + allDefs + '\n' + allVars + '\n' + allSetups + allLoop;
@@ -47,23 +59,34 @@ Arduino.finish = function(code) {
 
 Arduino.scrub_ = function(block, code, opt_thisOnly) {
   const nextBlock = block.nextConnection && block.nextConnection.targetBlock();
-  const nextCode = opt_thisOnly ? '' : Arduino.workspaceToCode(nextBlock);
+  const nextCode = opt_thisOnly ? '' : Arduino.blockToCode(nextBlock);
   return code + nextCode;
 };
 
 // =========================================================
-// 2. SISTEMA (INICIO)
+// 2. BLOQUES DE ESTRUCTURA (Nuevo Bloque Inicio)
 // =========================================================
+
 Blockly.Blocks['arduino_start'] = {
   init: function() {
-    this.appendDummyInput().appendField("🚀 INICIO PROGRAMA");
-    this.appendStatementInput("LOOP").setCheck(null).appendField("Ejecutar siempre");
-    this.setColour(230);
-    this.setDeletable(false);
+    this.appendDummyInput()
+        .appendField("🚀 INICIO PROGRAMA");
+    this.appendStatementInput("DO")
+        .setCheck(null)
+        .appendField("Hacer");
+    this.setPreviousStatement(true, null); // Permite conectarse arriba (opcional)
+    this.setNextStatement(true, null);     // Permite conectarse abajo
+    this.setColour(120);                   // Color verde/azulado
+    this.setTooltip("Bloque principal del programa (opcional)");
+    this.setHelpUrl("");
   }
 };
+
 Arduino.forBlock['arduino_start'] = function(block) {
-  return Arduino.statementToCode(block, 'LOOP');
+  var branch = Arduino.statementToCode(block, 'DO');
+  // Simplemente devolvemos el código que contiene.
+  // Como Arduino.finish() envuelve todo en loop(), esto funcionará transparente.
+  return branch;
 };
 
 // =========================================================
