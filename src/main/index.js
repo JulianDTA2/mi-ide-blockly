@@ -7,6 +7,14 @@ import path from 'path'
 import fs from 'fs'
 import os from 'os'
 
+// [SEGURIDAD] Función para limpiar inputs de comandos
+// Evita que un atacante inyecte comandos extraños en el FQBN o el puerto
+const sanitizeCmd = (str) => {
+  if (!str) return '';
+  // Solo permite letras, números, guiones, puntos y dos puntos (para fqbn: arduino:avr:uno)
+  return str.replace(/[^a-zA-Z0-9_\-.:]/g, '');
+}
+
 // --- CONFIGURACIÓN DE ARDUINO CLI ---
 const getArduinoCliPath = () => {
   // Detectar plataforma para añadir .exe si es Windows
@@ -135,14 +143,17 @@ app.whenReady().then(() => {
   // 3. Compilar Código
   ipcMain.handle('arduino:compile', async (event, { code, fqbn, sketchName }) => {
     const cliPath = getArduinoCliPath()
+    // [SEGURIDAD] Sanitizamos el FQBN antes de pasarlo al comando
+    const safeFqbn = sanitizeCmd(fqbn);
+
     try {
       // 1. Crear archivo temporal .ino
       const { projectDir } = await createTempSketch(code, sketchName)
-      console.log(`Compilando ${fqbn} en ${projectDir}...`);
+      console.log(`Compilando ${safeFqbn} en ${projectDir}...`);
       
       return new Promise((resolve) => {
-        // 2. Ejecutar comando compile
-        const cmd = `"${cliPath}" compile --fqbn ${fqbn} "${projectDir}"`
+        // 2. Ejecutar comando compile usando el FQBN sanitizado
+        const cmd = `"${cliPath}" compile --fqbn ${safeFqbn} "${projectDir}"`
         exec(cmd, (error, stdout, stderr) => {
           resolve({
             success: !error,
@@ -162,10 +173,14 @@ app.whenReady().then(() => {
     const safeName = (sketchName || 'Sketch').replace(/[^a-zA-Z0-9_-]/g, '_');
     const projectDir = path.join(os.tmpdir(), safeName)
 
+    // [SEGURIDAD] Sanitizamos Puerto y FQBN
+    const safePort = sanitizeCmd(port);
+    const safeFqbn = sanitizeCmd(fqbn);
+
     return new Promise((resolve) => {
-      console.log(`Subiendo a ${port} (FQBN: ${fqbn})...`);
-      // Comando upload especificando puerto y FQBN
-      const cmd = `"${cliPath}" upload -p ${port} --fqbn ${fqbn} "${projectDir}"`
+      console.log(`Subiendo a ${safePort} (FQBN: ${safeFqbn})...`);
+      // Comando upload con variables sanitizadas
+      const cmd = `"${cliPath}" upload -p ${safePort} --fqbn ${safeFqbn} "${projectDir}"`
       exec(cmd, (error, stdout, stderr) => {
         resolve({
           success: !error,
@@ -179,6 +194,7 @@ app.whenReady().then(() => {
   ipcMain.handle('arduino:install-core', async (event, coreName) => {
     const cliPath = getArduinoCliPath()
     return new Promise((resolve) => {
+      // Nota: Si planeas soportar ESP32, aquí deberías añadir lógica para --additional-urls
       console.log(`Instalando core: ${coreName}...`);
       const cmd = `"${cliPath}" core install ${coreName}`
       exec(cmd, (error, stdout, stderr) => {

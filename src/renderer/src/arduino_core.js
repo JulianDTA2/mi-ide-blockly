@@ -1,164 +1,99 @@
-/**
- * @license
- * Copyright 2024 Google LLC
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import * as Blockly from 'blockly';
 
+// =========================================================
+// 1. CONFIGURACIÓN DEL GENERADOR C++ (ARDUINO)
+// =========================================================
 const Arduino = new Blockly.Generator('Arduino');
 
-/**
- * Palabras reservadas de Arduino C++ para evitar conflictos con variables
- */
-Arduino.addReservedWords(
-    'setup,loop,if,else,for,switch,case,while,do,break,continue,return,goto,' +
-    'define,include,HIGH,LOW,INPUT,OUTPUT,INPUT_PULLUP,true,false,integer,' +
-    'constants,floating,point,void,book,boolean,char,class,const,double,enum,' +
-    'explicit,extern,float,friend,inline,int,long,mutable,new,operator,private,' +
-    'protected,public,register,short,signed,sizeof,static,struct,template,' +
-    'this,throw,try,typedef,union,unsigned,virtual,void,volatile,while,' +
-    'setup,loop,delay,pinMode,digitalWrite,digitalRead,analogWrite,analogRead,' +
-    'Serial,begin,print,println,available,read,write,flush,peek,end');
+// Prioridad de operadores (Estándar C++)
+Arduino.ORDER_ATOMIC = 0;
+Arduino.ORDER_UNARY_POSTFIX = 1;
+Arduino.ORDER_UNARY_PREFIX = 2;
+Arduino.ORDER_MULTIPLICATIVE = 3;
+Arduino.ORDER_ADDITIVE = 4;
+Arduino.ORDER_SHIFT = 5;
+Arduino.ORDER_RELATIONAL = 6;
+Arduino.ORDER_EQUALITY = 7;
+Arduino.ORDER_BITWISE_AND = 8;
+Arduino.ORDER_BITWISE_XOR = 9;
+Arduino.ORDER_BITWISE_OR = 10;
+Arduino.ORDER_LOGICAL_AND = 11;
+Arduino.ORDER_LOGICAL_OR = 12;
+Arduino.ORDER_CONDITIONAL = 13;
+Arduino.ORDER_ASSIGNMENT = 14;
+Arduino.ORDER_NONE = 99;
 
-/**
- * Orden de precedencia de operadores (Estilo C++)
- */
-Arduino.ORDER_ATOMIC = 0;         // 0 "" ...
-Arduino.ORDER_UNARY_POSTFIX = 1;  // ++ --
-Arduino.ORDER_UNARY_PREFIX = 2;   // + - ! ~
-Arduino.ORDER_MULTIPLICATIVE = 3; // * / %
-Arduino.ORDER_ADDITIVE = 4;       // + -
-Arduino.ORDER_SHIFT = 5;          // << >>
-Arduino.ORDER_RELATIONAL = 6;     // < > <= >=
-Arduino.ORDER_EQUALITY = 7;       // == !=
-Arduino.ORDER_BITWISE_AND = 8;    // &
-Arduino.ORDER_BITWISE_XOR = 9;    // ^
-Arduino.ORDER_BITWISE_OR = 10;    // |
-Arduino.ORDER_LOGICAL_AND = 11;   // &&
-Arduino.ORDER_LOGICAL_OR = 12;    // ||
-Arduino.ORDER_CONDITIONAL = 13;   // ? :
-Arduino.ORDER_ASSIGNMENT = 14;    // = += -= ...
-Arduino.ORDER_COMMA = 15;         // ,
-Arduino.ORDER_NONE = 99;          // (...)
-
-/**
- * Inicialización del estado del generador.
- * Se llama antes de generar código para limpiar definiciones previas.
- */
 Arduino.init = function(workspace) {
-  // Diccionario para definiciones globales (#include, variables globales)
-  Arduino.definitions_ = Object.create(null);
-  // Diccionario para funciones auxiliares
-  Arduino.functionNames_ = Object.create(null);
-  // Diccionario para código de configuración (dentro de setup())
-  Arduino.setups_ = Object.create(null);
-  
-  if (!Arduino.nameDB_) {
-    Arduino.nameDB_ = new Blockly.Names(Arduino.RESERVED_WORDS_);
-  } else {
-    Arduino.nameDB_.reset();
-  }
-
-  Arduino.nameDB_.setVariableMap(workspace.getVariableMap());
-
-  // Definición de variables globales
-  const defvars = [];
-  const variables = workspace.getAllVariables();
-  for (let i = 0; i < variables.length; i++) {
-    // Usamos el string explícito 'VARIABLE' para evitar problemas con constantes indefinidas
-    const varName = Arduino.nameDB_.getName(variables[i].getId(), 'VARIABLE');
-    // Por defecto las inicializamos como float para evitar errores de tipo en bloques matemáticos
-    defvars.push('float ' + varName + ' = 0;');
-  }
-  if (defvars.length > 0) {
-      Arduino.definitions_['variables'] = defvars.join('\n');
-  }
+  Arduino.definitions_ = Object.create(null); 
+  Arduino.setups_ = Object.create(null);      
+  Arduino.variables_ = Object.create(null);   
 };
 
 /**
- * Finalización: Ensambla todo el código en la estructura de Arduino (.ino)
+ * Esta función es la MAGIA que elimina la necesidad del bloque "Inicio".
+ * Toma todo el código generado por los bloques sueltos ('code') 
+ * y lo mete automáticamente dentro de 'void loop()'.
  */
 Arduino.finish = function(code) {
-  // 1. Definiciones Globales (Includes, Variables, Funciones auxiliares)
-  const definitions = [];
-  for (const name in Arduino.definitions_) {
-    definitions.push(Arduino.definitions_[name]);
-  }
+  var definitions = [];
+  var variables = [];
+  var setups = [];
   
-  // 2. Setup (pinMode, Serial.begin)
-  const setups = [];
-  for (const name in Arduino.setups_) {
-    setups.push(Arduino.setups_[name]);
-  }
-
-  // CONSTRUCCIÓN DEL CÓDIGO FINAL
-  let ret = '';
+  for (var name in Arduino.definitions_) definitions.push(Arduino.definitions_[name]);
+  for (var name in Arduino.variables_) variables.push(Arduino.variables_[name]);
+  for (var name in Arduino.setups_) setups.push(Arduino.setups_[name]);
   
-  // Headers y Globales
-  if (definitions.length > 0) {
-      ret += definitions.join('\n') + '\n\n';
-  }
+  var allDefs = definitions.join('\n');
+  var allVars = variables.join('\n');
+  var allSetups = 'void setup() {\n  ' + setups.join('\n  ') + '\n}\n\n';
   
-  // Función Setup
-  ret += 'void setup() {\n';
-  if (setups.length > 0) {
-      ret += '  ' + setups.join('\n  ') + '\n';
-  }
-  ret += '}\n\n';
+  var allLoop = 'void loop() {\n' + code + '\n}';
   
-  // Función Loop
-  ret += 'void loop() {\n';
-  ret += code;
-  ret += '}\n';
-
-  return ret;
+  return '// Generado por MarkRobot IDE\n\n' + allDefs + '\n' + allVars + '\n' + allSetups + allLoop;
 };
 
-/**
- * Manejo de bloques sueltos
- */
-Arduino.scrubNakedValue = function(line) {
-  return line + ';\n';
-};
-
-/**
- * Función auxiliar para escapar strings
- */
-Arduino.quote_ = function(string) {
-  string = string.replace(/\\/g, '\\\\')
-                 .replace(/\n/g, '\\\n')
-                 .replace(/'/g, '\\\'');
-  return '\"' + string + '\"';
-};
-
-/**
- * Función principal de recorrido (Scrub)
- * Conecta los bloques en secuencia.
- */
 Arduino.scrub_ = function(block, code, opt_thisOnly) {
   const nextBlock = block.nextConnection && block.nextConnection.targetBlock();
   const nextCode = opt_thisOnly ? '' : Arduino.blockToCode(nextBlock);
   return code + nextCode;
 };
 
-// =============================================================================
-//                             GENERADORES DE BLOQUES ESTÁNDAR
-// =============================================================================
+// =========================================================
+// 2. BLOQUES DE ESTRUCTURA (Nuevo Bloque Inicio)
+// =========================================================
 
-// --- LÓGICA ---
-Arduino['controls_if'] = function(block) {
-  let n = 0;
-  let code = '', branchCode, conditionCode;
+Blockly.Blocks['arduino_start'] = {
+  init: function() {
+    this.appendDummyInput()
+        .appendField("🚀 INICIO PROGRAMA");
+    this.appendStatementInput("DO")
+        .setCheck(null)
+        .appendField("Hacer");
+    this.setPreviousStatement(true, null); 
+    this.setNextStatement(true, null);     
+    this.setColour(120);                   
+    this.setTooltip("Bloque principal del programa (opcional)");
+    this.setHelpUrl("");
+  }
+};
+
+Arduino.forBlock['arduino_start'] = function(block) {
+  var branch = Arduino.statementToCode(block, 'DO');
+  return branch;
+};
+
+// =========================================================
+// 3. LÓGICA & CONTROL
+// =========================================================
+Arduino.forBlock['controls_if'] = function(block) {
+  var n = 0;
+  var code = '', branchCode, conditionCode;
   do {
-    conditionCode = Arduino.valueToCode(block, 'IF' + n,
-      Arduino.ORDER_NONE) || 'false';
+    conditionCode = Arduino.valueToCode(block, 'IF' + n, Arduino.ORDER_NONE) || 'false';
     branchCode = Arduino.statementToCode(block, 'DO' + n);
-    code += (n > 0 ? ' else ' : '') +
-        'if (' + conditionCode + ') {\n' + branchCode + '}';
+    code += (n > 0 ? ' else ' : '') + 'if (' + conditionCode + ') {\n' + branchCode + '}';
     ++n;
   } while (block.getInput('IF' + n));
-
   if (block.getInput('ELSE')) {
     branchCode = Arduino.statementToCode(block, 'ELSE');
     code += ' else {\n' + branchCode + '}';
@@ -166,266 +101,417 @@ Arduino['controls_if'] = function(block) {
   return code + '\n';
 };
 
-Arduino['logic_compare'] = function(block) {
-  const OPERATORS = {
-    'EQ': '==', 'NEQ': '!=', 'LT': '<', 'LTE': '<=', 'GT': '>', 'GTE': '>='
-  };
-  const operator = OPERATORS[block.getFieldValue('OP')];
-  const order = (operator == '==' || operator == '!=') ?
-      Arduino.ORDER_EQUALITY : Arduino.ORDER_RELATIONAL;
-  const argument0 = Arduino.valueToCode(block, 'A', order) || '0';
-  const argument1 = Arduino.valueToCode(block, 'B', order) || '0';
-  const code = argument0 + ' ' + operator + ' ' + argument1;
-  return [code, order];
+Arduino.forBlock['logic_compare'] = function(block) {
+  var OPERATORS = { 'EQ': '==', 'NEQ': '!=', 'LT': '<', 'LTE': '<=', 'GT': '>', 'GTE': '>=' };
+  var operator = OPERATORS[block.getFieldValue('OP')];
+  var argument0 = Arduino.valueToCode(block, 'A', Arduino.ORDER_EQUALITY) || '0';
+  var argument1 = Arduino.valueToCode(block, 'B', Arduino.ORDER_EQUALITY) || '0';
+  return [argument0 + ' ' + operator + ' ' + argument1, Arduino.ORDER_EQUALITY];
 };
 
-Arduino['logic_operation'] = function(block) {
-    const operator = (block.getFieldValue('OP') == 'AND') ? '&&' : '||';
-    const order = (operator == '&&') ? Arduino.ORDER_LOGICAL_AND :
-        Arduino.ORDER_LOGICAL_OR;
-    const argument0 = Arduino.valueToCode(block, 'A', order) || 'false';
-    const argument1 = Arduino.valueToCode(block, 'B', order) || 'false';
-    const code = argument0 + ' ' + operator + ' ' + argument1;
-    return [code, order];
+Arduino.forBlock['logic_operation'] = function(block) {
+  var operator = (block.getFieldValue('OP') == 'AND') ? '&&' : '||';
+  var argument0 = Arduino.valueToCode(block, 'A', Arduino.ORDER_LOGICAL_AND) || 'false';
+  var argument1 = Arduino.valueToCode(block, 'B', Arduino.ORDER_LOGICAL_AND) || 'false';
+  return [argument0 + ' ' + operator + ' ' + argument1, Arduino.ORDER_LOGICAL_AND];
 };
 
-Arduino['logic_boolean'] = function(block) {
-    const code = (block.getFieldValue('BOOL') == 'TRUE') ? 'true' : 'false';
-    return [code, Arduino.ORDER_ATOMIC];
+Arduino.forBlock['logic_negate'] = function(block) {
+  var argument0 = Arduino.valueToCode(block, 'BOOL', Arduino.ORDER_UNARY_PREFIX) || 'true';
+  return ['!' + argument0, Arduino.ORDER_UNARY_PREFIX];
 };
 
-Arduino['logic_negate'] = function(block) {
-    const order = Arduino.ORDER_UNARY_PREFIX;
-    const argument0 = Arduino.valueToCode(block, 'BOOL', order) || 'false';
-    const code = '!' + argument0;
-    return [code, order];
-};
-
-// --- BUCLES ---
-Arduino['controls_repeat_ext'] = function(block) {
-    const repeats = Arduino.valueToCode(block, 'TIMES',
-        Arduino.ORDER_ADDITIVE) || '0';
-    const branch = Arduino.statementToCode(block, 'DO');
-    // Usamos 'VARIABLE' explícitamente para el nombre del contador
-    const loopVar = Arduino.nameDB_.getDistinctName('count', 'VARIABLE');
-    const code = 'for (int ' + loopVar + ' = 0; ' + loopVar + ' < ' + repeats + '; ' + loopVar + '++) {\n' +
-        branch + '}\n';
-    return code;
-};
-
-Arduino['controls_whileUntil'] = function(block) {
-    const until = block.getFieldValue('MODE') == 'UNTIL';
-    let argument0 = Arduino.valueToCode(block, 'BOOL',
-        until ? Arduino.ORDER_LOGICAL_NOT :
-        Arduino.ORDER_NONE) || 'false';
-    const branch = Arduino.statementToCode(block, 'DO');
-    if (until) {
-      argument0 = '!' + argument0;
-    }
-    return 'while (' + argument0 + ') {\n' + branch + '}\n';
-};
-
-Arduino['controls_for'] = function(block) {
-    const variable0 = Arduino.nameDB_.getName(
-        block.getFieldValue('VAR'), 'VARIABLE');
-    const argument0 = Arduino.valueToCode(block, 'FROM',
-        Arduino.ORDER_ASSIGNMENT) || '0';
-    const argument1 = Arduino.valueToCode(block, 'TO',
-        Arduino.ORDER_ASSIGNMENT) || '0';
-    const increment = Arduino.valueToCode(block, 'BY',
-        Arduino.ORDER_ASSIGNMENT) || '1';
-    const branch = Arduino.statementToCode(block, 'DO');
-    
-    const code = 'for (' + variable0 + ' = ' + argument0 + '; ' +
-        variable0 + ' <= ' + argument1 + '; ' +
-        variable0 + ' += ' + increment + ') {\n' +
-        branch + '}\n';
-    return code;
-};
-
-// --- MATEMÁTICAS ---
-Arduino['math_number'] = function(block) {
-  const code = parseFloat(block.getFieldValue('NUM'));
+Arduino.forBlock['logic_boolean'] = function(block) {
+  var code = (block.getFieldValue('BOOL') == 'TRUE') ? 'true' : 'false';
   return [code, Arduino.ORDER_ATOMIC];
 };
 
-Arduino['math_arithmetic'] = function(block) {
-  const OPERATORS = {
-    'ADD': [' + ', Arduino.ORDER_ADDITIVE],
-    'MINUS': [' - ', Arduino.ORDER_ADDITIVE],
-    'MULTIPLY': [' * ', Arduino.ORDER_MULTIPLICATIVE],
-    'DIVIDE': [' / ', Arduino.ORDER_MULTIPLICATIVE],
-    'POWER': [null, Arduino.ORDER_NONE]
-  };
-  const tuple = OPERATORS[block.getFieldValue('OP')];
-  const operator = tuple[0];
-  const order = tuple[1];
-  const argument0 = Arduino.valueToCode(block, 'A', order) || '0';
-  const argument1 = Arduino.valueToCode(block, 'B', order) || '0';
-  let code;
-  if (!operator) {
-    code = 'pow(' + argument0 + ', ' + argument1 + ')';
-    return [code, Arduino.ORDER_UNARY_POSTFIX];
+Arduino.forBlock['logic_null'] = function(block) {
+  return ['NULL', Arduino.ORDER_ATOMIC];
+};
+
+Arduino.forBlock['logic_ternary'] = function(block) {
+  var value_if = Arduino.valueToCode(block, 'IF', Arduino.ORDER_CONDITIONAL) || 'false';
+  var value_then = Arduino.valueToCode(block, 'THEN', Arduino.ORDER_CONDITIONAL) || 'null';
+  var value_else = Arduino.valueToCode(block, 'ELSE', Arduino.ORDER_CONDITIONAL) || 'null';
+  return [value_if + ' ? ' + value_then + ' : ' + value_else, Arduino.ORDER_CONDITIONAL];
+};
+
+Arduino.forBlock['controls_repeat_ext'] = function(block) {
+  var repeats = Arduino.valueToCode(block, 'TIMES', Arduino.ORDER_ASSIGNMENT) || '0';
+  var branch = Arduino.statementToCode(block, 'DO');
+  return 'for (int i = 0; i < ' + repeats + '; i++) {\n' + branch + '}\n';
+};
+
+Arduino.forBlock['controls_whileUntil'] = function(block) {
+  var mode = block.getFieldValue('MODE');
+  var until = mode == 'UNTIL';
+  var argument0 = Arduino.valueToCode(block, 'BOOL', until ? Arduino.ORDER_LOGICAL_NOT : Arduino.ORDER_NONE) || 'false';
+  var branch = Arduino.statementToCode(block, 'DO');
+  if (until) argument0 = '!' + argument0;
+  return 'while (' + argument0 + ') {\n' + branch + '}\n';
+};
+
+Arduino.forBlock['controls_for'] = function(block) {
+  var variable0 = Blockly.Names.prototype.getName(block.getFieldValue('VAR'), 'VARIABLE');
+  var argument0 = Arduino.valueToCode(block, 'FROM', Arduino.ORDER_ASSIGNMENT) || '0';
+  var argument1 = Arduino.valueToCode(block, 'TO', Arduino.ORDER_ASSIGNMENT) || '0';
+  var increment = Arduino.valueToCode(block, 'BY', Arduino.ORDER_ASSIGNMENT) || '1';
+  var branch = Arduino.statementToCode(block, 'DO');
+  Arduino.variables_[variable0] = 'int ' + variable0 + ';';
+  return 'for (' + variable0 + ' = ' + argument0 + '; ' + variable0 + ' <= ' + argument1 + '; ' + variable0 + ' += ' + increment + ') {\n' + branch + '}\n';
+};
+
+Arduino.forBlock['controls_flow_statements'] = function(block) {
+  switch (block.getFieldValue('FLOW')) {
+    case 'BREAK': return 'break;\n';
+    case 'CONTINUE': return 'continue;\n';
   }
-  code = argument0 + operator + argument1;
-  return [code, order];
+  return '';
 };
 
-Arduino['math_random_int'] = function(block) {
-    const argument0 = Arduino.valueToCode(block, 'FROM', Arduino.ORDER_NONE) || '0';
-    const argument1 = Arduino.valueToCode(block, 'TO', Arduino.ORDER_NONE) || '0';
-    const code = 'random(' + argument0 + ', ' + argument1 + ' + 1)';
-    return [code, Arduino.ORDER_UNARY_POSTFIX];
+// =========================================================
+// 4. MATEMÁTICAS
+// =========================================================
+Arduino.forBlock['math_number'] = function(block) {
+  return [parseFloat(block.getFieldValue('NUM')), Arduino.ORDER_ATOMIC];
 };
 
-Arduino['math_map'] = function(block) {
-    const value = Arduino.valueToCode(block, 'VALUE', Arduino.ORDER_NONE) || '0';
-    const fromLow = Arduino.valueToCode(block, 'FROM_LOW', Arduino.ORDER_NONE) || '0';
-    const fromHigh = Arduino.valueToCode(block, 'FROM_HIGH', Arduino.ORDER_NONE) || '1024';
-    const toLow = Arduino.valueToCode(block, 'TO_LOW', Arduino.ORDER_NONE) || '0';
-    const toHigh = Arduino.valueToCode(block, 'TO_HIGH', Arduino.ORDER_NONE) || '255';
-    const code = 'map(' + value + ', ' + fromLow + ', ' + fromHigh + ', ' + toLow + ', ' + toHigh + ')';
-    return [code, Arduino.ORDER_NONE];
-}
-
-// --- TEXTO ---
-Arduino['text'] = function(block) {
-  const code = Arduino.quote_(block.getFieldValue('TEXT'));
-  return [code, Arduino.ORDER_ATOMIC];
+Arduino.forBlock['math_arithmetic'] = function(block) {
+  var OPERATORS = { 'ADD': [' + ', Arduino.ORDER_ADDITIVE], 'MINUS': [' - ', Arduino.ORDER_ADDITIVE], 'MULTIPLY': [' * ', Arduino.ORDER_MULTIPLICATIVE], 'DIVIDE': [' / ', Arduino.ORDER_MULTIPLICATIVE], 'POWER': [null, Arduino.ORDER_NONE] };
+  var tuple = OPERATORS[block.getFieldValue('OP')];
+  var operator = tuple[0];
+  var argument0 = Arduino.valueToCode(block, 'A', tuple[1]) || '0';
+  var argument1 = Arduino.valueToCode(block, 'B', tuple[1]) || '0';
+  if (!operator) return ['pow(' + argument0 + ', ' + argument1 + ')', Arduino.ORDER_UNARY_POSTFIX];
+  return [argument0 + operator + argument1, tuple[1]];
 };
 
-Arduino['text_print'] = function(block) {
-  const msg = Arduino.valueToCode(block, 'TEXT', Arduino.ORDER_NONE) || '""';
-  Arduino.setups_['setup_serial'] = 'Serial.begin(9600);';
-  return 'Serial.println(' + msg + ');\n';
+Arduino.forBlock['math_single'] = function(block) {
+  var operator = block.getFieldValue('OP');
+  var arg = Arduino.valueToCode(block, 'NUM', Arduino.ORDER_NONE) || '0';
+  var code;
+  switch (operator) {
+    case 'ROOT': code = 'sqrt(' + arg + ')'; break;
+    case 'ABS': code = 'abs(' + arg + ')'; break;
+    case 'NEG': code = '-' + arg; break;
+    case 'LN': code = 'log(' + arg + ')'; break;
+    case 'LOG10': code = 'log10(' + arg + ')'; break;
+    case 'EXP': code = 'exp(' + arg + ')'; break;
+    case 'POW10': code = 'pow(10, ' + arg + ')'; break;
+  }
+  return [code, Arduino.ORDER_UNARY_POSTFIX];
 };
 
-Arduino['text_join'] = function(block) {
-    if (block.itemCount_ == 0) return ['""', Arduino.ORDER_ATOMIC];
-    if (block.itemCount_ == 1) return [Arduino.valueToCode(block, 'ADD0', Arduino.ORDER_NONE) || '""', Arduino.ORDER_ATOMIC];
-    
-    let code = 'String(' + (Arduino.valueToCode(block, 'ADD0', Arduino.ORDER_ADDITIVE) || '""') + ')';
-    for (let n = 1; n < block.itemCount_; n++) {
-        code += ' + String(' + (Arduino.valueToCode(block, 'ADD' + n, Arduino.ORDER_ADDITIVE) || '""') + ')';
-    }
-    return [code, Arduino.ORDER_ADDITIVE];
+Arduino.forBlock['math_trig'] = function(block) {
+  var operator = block.getFieldValue('OP');
+  var arg = Arduino.valueToCode(block, 'NUM', Arduino.ORDER_NONE) || '0';
+  var code;
+  switch (operator) {
+    case 'SIN': code = 'sin(' + arg + ' * PI / 180)'; break;
+    case 'COS': code = 'cos(' + arg + ' * PI / 180)'; break;
+    case 'TAN': code = 'tan(' + arg + ' * PI / 180)'; break;
+    case 'ASIN': code = 'asin(' + arg + ') * 180 / PI'; break;
+    case 'ACOS': code = 'acos(' + arg + ') * 180 / PI'; break;
+    case 'ATAN': code = 'atan(' + arg + ') * 180 / PI'; break;
+  }
+  return [code, Arduino.ORDER_UNARY_POSTFIX];
 };
 
-// --- VARIABLES ---
-Arduino['variables_get'] = function(block) {
-  const code = Arduino.nameDB_.getName(block.getFieldValue('VAR'), 'VARIABLE');
-  return [code, Arduino.ORDER_ATOMIC];
+Arduino.forBlock['math_constant'] = function(block) {
+  var CONSTANTS = {'PI': ['PI', Arduino.ORDER_UNARY_POSTFIX], 'E': ['E', Arduino.ORDER_UNARY_POSTFIX], 'GOLDEN_RATIO': ['1.618', Arduino.ORDER_UNARY_POSTFIX], 'SQRT2': ['1.414', Arduino.ORDER_UNARY_POSTFIX], 'SQRT1_2': ['0.707', Arduino.ORDER_UNARY_POSTFIX], 'INFINITY': ['INFINITY', Arduino.ORDER_UNARY_POSTFIX]};
+  return CONSTANTS[block.getFieldValue('CONSTANT')];
 };
 
-Arduino['variables_set'] = function(block) {
-  const argument0 = Arduino.valueToCode(block, 'VALUE',
-      Arduino.ORDER_ASSIGNMENT) || '0';
-  const varName = Arduino.nameDB_.getName(block.getFieldValue('VAR'), 'VARIABLE');
+Arduino.forBlock['math_number_property'] = function(block) {
+  var number_to_check = Arduino.valueToCode(block, 'NUMBER_TO_CHECK', Arduino.ORDER_MODULUS) || '0';
+  var dropdown_property = block.getFieldValue('PROPERTY');
+  var code;
+  switch (dropdown_property) {
+    case 'EVEN': code = '(int)' + number_to_check + ' % 2 == 0'; break;
+    case 'ODD': code = '(int)' + number_to_check + ' % 2 == 1'; break;
+    case 'POSITIVE': code = number_to_check + ' > 0'; break;
+    case 'NEGATIVE': code = number_to_check + ' < 0'; break;
+    case 'WHOLE': code = number_to_check + ' % 1 == 0'; break;
+    case 'DIVISIBLE_BY':
+      var divisor = Arduino.valueToCode(block, 'DIVISOR', Arduino.ORDER_MODULUS) || '0';
+      code = '(int)' + number_to_check + ' % (int)' + divisor + ' == 0';
+      break;
+  }
+  return [code, Arduino.ORDER_EQUALITY];
+};
+
+Arduino.forBlock['math_change'] = function(block) {
+  var argument0 = Arduino.valueToCode(block, 'DELTA', Arduino.ORDER_ADDITIVE) || '0';
+  var varName = Blockly.Names.prototype.getName(block.getFieldValue('VAR'), 'VARIABLE');
+  return varName + ' += ' + argument0 + ';\n';
+};
+
+Arduino.forBlock['math_round'] = function(block) {
+  var operator = block.getFieldValue('OP');
+  var arg = Arduino.valueToCode(block, 'NUM', Arduino.ORDER_NONE) || '0';
+  var code;
+  switch (operator) {
+    case 'ROUND': code = 'round(' + arg + ')'; break;
+    case 'ROUNDUP': code = 'ceil(' + arg + ')'; break;
+    case 'ROUNDDOWN': code = 'floor(' + arg + ')'; break;
+  }
+  return [code, Arduino.ORDER_UNARY_POSTFIX];
+};
+
+Arduino.forBlock['math_modulo'] = function(block) {
+  var argument0 = Arduino.valueToCode(block, 'DIVIDEND', Arduino.ORDER_MODULUS) || '0';
+  var argument1 = Arduino.valueToCode(block, 'DIVISOR', Arduino.ORDER_MODULUS) || '0';
+  return ['(int)' + argument0 + ' % (int)' + argument1, Arduino.ORDER_MODULUS];
+};
+
+Arduino.forBlock['math_constrain'] = function(block) {
+  var argument0 = Arduino.valueToCode(block, 'VALUE', Arduino.ORDER_NONE) || '0';
+  var argument1 = Arduino.valueToCode(block, 'LOW', Arduino.ORDER_NONE) || '0';
+  var argument2 = Arduino.valueToCode(block, 'HIGH', Arduino.ORDER_NONE) || '0';
+  return ['constrain(' + argument0 + ', ' + argument1 + ', ' + argument2 + ')', Arduino.ORDER_UNARY_POSTFIX];
+};
+
+Arduino.forBlock['math_random_int'] = function(block) {
+  var argument0 = Arduino.valueToCode(block, 'FROM', Arduino.ORDER_NONE) || '0';
+  var argument1 = Arduino.valueToCode(block, 'TO', Arduino.ORDER_NONE) || '0';
+  return ['random(' + argument0 + ', ' + argument1 + ' + 1)', Arduino.ORDER_UNARY_POSTFIX];
+};
+
+Arduino.forBlock['math_random_float'] = function(block) {
+  return ['(random(0, 1000) / 1000.0)', Arduino.ORDER_UNARY_POSTFIX];
+};
+
+Blockly.Blocks['math_map'] = {
+  init: function() {
+    this.appendValueInput("NUM").setCheck("Number").appendField("Mapear");
+    this.appendDummyInput().appendField("valor a [0-");
+    this.appendValueInput("MAX").setCheck("Number");
+    this.appendDummyInput().appendField("]");
+    this.setInputsInline(true);
+    this.setOutput(true, "Number");
+    this.setColour('#5C68A6');
+    this.setTooltip("Mapea un valor (0-1023) a un nuevo rango");
+  }
+};
+Arduino.forBlock['math_map'] = function(block) {
+  var value = Arduino.valueToCode(block, 'NUM', Arduino.ORDER_NONE) || '0';
+  var max = Arduino.valueToCode(block, 'MAX', Arduino.ORDER_NONE) || '255';
+  return ['map(' + value + ', 0, 1023, 0, ' + max + ')', Arduino.ORDER_ATOMIC];
+};
+
+// =========================================================
+// 5. VARIABLES Y TEXTO
+// =========================================================
+Arduino.forBlock['variables_get'] = function(block) {
+  var varName = Blockly.Names.prototype.getName(block.getFieldValue('VAR'), 'VARIABLE');
+  return [varName, Arduino.ORDER_ATOMIC];
+};
+Arduino.forBlock['variables_set'] = function(block) {
+  var argument0 = Arduino.valueToCode(block, 'VALUE', Arduino.ORDER_ASSIGNMENT) || '0';
+  var varName = Blockly.Names.prototype.getName(block.getFieldValue('VAR'), 'VARIABLE');
+  Arduino.variables_[varName] = 'int ' + varName + ';';
   return varName + ' = ' + argument0 + ';\n';
 };
 
-// --- ENTRADA / SALIDA ---
-Arduino['digital_write'] = function(block) {
-    const pin = block.getFieldValue('PIN') || '13';
-    const state = block.getFieldValue('STATE') || 'HIGH';
-    Arduino.setups_['setup_output_' + pin] = 'pinMode(' + pin + ', OUTPUT);';
-    return 'digitalWrite(' + pin + ', ' + state + ');\n';
+Blockly.Blocks['variables_set_type'] = {
+  init: function() {
+    this.appendValueInput("VALUE").setCheck(null).appendField("fijar");
+    this.appendDummyInput().appendField(new Blockly.FieldVariable("item"), "VAR");
+    this.appendDummyInput().appendField("a");
+    this.appendDummyInput().appendField("como");
+    this.appendDummyInput().appendField(new Blockly.FieldDropdown([["Número (int)","int"], ["Texto (String)","String"], ["Carácter (char)","char"], ["Decimal (float)","float"], ["Booleano (bool)","bool"]]), "TYPE");
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setColour('#A65C81');
+  }
+};
+Arduino.forBlock['variables_set_type'] = function(block) {
+  var argument0 = Arduino.valueToCode(block, 'VALUE', Arduino.ORDER_ASSIGNMENT) || '0';
+  var varName = Blockly.Names.prototype.getName(block.getFieldValue('VAR'), 'VARIABLE');
+  var type = block.getFieldValue('TYPE');
+  Arduino.variables_[varName] = type + ' ' + varName + ';';
+  return varName + ' = ' + argument0 + ';\n';
 };
 
-Arduino['digital_read'] = function(block) {
-    const pin = block.getFieldValue('PIN') || '2';
-    Arduino.setups_['setup_input_' + pin] = 'pinMode(' + pin + ', INPUT);';
-    return ['digitalRead(' + pin + ')', Arduino.ORDER_ATOMIC];
+Blockly.Blocks['type_cast'] = {
+  init: function() {
+    this.appendValueInput("VALUE").setCheck(null);
+    this.appendDummyInput().appendField("como");
+    this.appendDummyInput().appendField(new Blockly.FieldDropdown([["Número (int)","int"], ["Texto (String)","String"], ["Carácter (char)","char"], ["Decimal (float)","float"]]), "TYPE");
+    this.setOutput(true, null);
+    this.setColour('#A65C81');
+  }
+};
+Arduino.forBlock['type_cast'] = function(block) {
+  var value = Arduino.valueToCode(block, 'VALUE', Arduino.ORDER_ATOMIC) || '0';
+  var type = block.getFieldValue('TYPE');
+  if (type === 'String') return ['String(' + value + ')', Arduino.ORDER_UNARY_POSTFIX];
+  return ['(' + type + ') ' + value, Arduino.ORDER_UNARY_POSTFIX];
 };
 
-Arduino['analog_read'] = function(block) {
-    const pin = block.getFieldValue('PIN') || 'A0';
-    return ['analogRead(' + pin + ')', Arduino.ORDER_ATOMIC];
+Arduino.forBlock['text'] = function(block) {
+  return [JSON.stringify(block.getFieldValue('TEXT')), Arduino.ORDER_ATOMIC];
+};
+Arduino.forBlock['text_join'] = function(block) {
+  var code;
+  if (block.itemCount_ == 0) return ['""', Arduino.ORDER_ATOMIC];
+  else if (block.itemCount_ == 1) return ['String(' + (Arduino.valueToCode(block, 'ADD0', Arduino.ORDER_NONE) || '""') + ')', Arduino.ORDER_UNARY_POSTFIX];
+  else {
+    code = 'String(' + (Arduino.valueToCode(block, 'ADD0', Arduino.ORDER_NONE) || '""') + ')';
+    for (var n = 1; n < block.itemCount_; n++) code += ' + String(' + (Arduino.valueToCode(block, 'ADD' + n, Arduino.ORDER_NONE) || '""') + ')';
+    return [code, Arduino.ORDER_UNARY_POSTFIX];
+  }
+};
+Arduino.forBlock['text_append'] = function(block) {
+  var varName = Blockly.Names.prototype.getName(block.getFieldValue('VAR'), 'VARIABLE');
+  var value = Arduino.valueToCode(block, 'TEXT', Arduino.ORDER_NONE) || '""';
+  return varName + ' += String(' + value + ');\n';
+};
+Arduino.forBlock['text_length'] = function(block) {
+  var text = Arduino.valueToCode(block, 'VALUE', Arduino.ORDER_NONE) || '""';
+  return ['String(' + text + ').length()', Arduino.ORDER_UNARY_POSTFIX];
+};
+Arduino.forBlock['text_isEmpty'] = function(block) {
+  var text = Arduino.valueToCode(block, 'VALUE', Arduino.ORDER_NONE) || '""';
+  return ['String(' + text + ').length() == 0', Arduino.ORDER_EQUALITY];
+};
+Arduino.forBlock['text_print'] = function(block) {
+  var msg = Arduino.valueToCode(block, 'TEXT', Arduino.ORDER_NONE) || '""';
+  Arduino.setups_['serial_begin'] = 'Serial.begin(9600);';
+  return 'Serial.println(' + msg + ');\n';
 };
 
-Arduino['analog_write'] = function(block) {
-    const pin = block.getFieldValue('PIN') || '3';
-    const val = Arduino.valueToCode(block, 'VALUE', Arduino.ORDER_NONE) || '0';
-    Arduino.setups_['setup_output_' + pin] = 'pinMode(' + pin + ', OUTPUT);';
-    return 'analogWrite(' + pin + ', ' + val + ');\n';
+// =========================================================
+// 6. HARDWARE (INPUT/OUTPUT)
+// =========================================================
+Blockly.Blocks['digital_write'] = {
+  init: function() {
+    this.appendDummyInput().appendField("Escribir Digital PIN").appendField(new Blockly.FieldNumber(13), "PIN").appendField("Valor").appendField(new Blockly.FieldDropdown([["HIGH","HIGH"], ["LOW","LOW"]]), "STATE");
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setColour(65);
+  }
+};
+Arduino.forBlock['digital_write'] = function(block) {
+  var pin = block.getFieldValue('PIN');
+  var state = block.getFieldValue('STATE');
+  Arduino.setups_['setup_pin_' + pin] = 'pinMode(' + pin + ', OUTPUT);';
+  return 'digitalWrite(' + pin + ', ' + state + ');\n';
 };
 
-// =============================================================================
-//               GENERADORES PERSONALIZADOS (RoboticMinds & Custom)
-// =============================================================================
-
-// Generador para el bloque "Esperar %1 ms"
-Arduino['custom_delay'] = function(block) {
-    let delayTime = block.getFieldValue('DELAY_MS');
-    // Soporte tanto para campo numérico directo como para entrada conectada
-    if (delayTime === undefined || delayTime === null) {
-         delayTime = Arduino.valueToCode(block, 'DELAY_MS', Arduino.ORDER_NONE) || '1000';
-    }
-    return 'delay(' + delayTime + ');\n';
+Blockly.Blocks['digital_read'] = {
+  init: function() {
+    this.appendDummyInput().appendField("Leer Digital PIN").appendField(new Blockly.FieldNumber(2), "PIN");
+    this.setOutput(true, "Boolean");
+    this.setColour(65);
+  }
+};
+Arduino.forBlock['digital_read'] = function(block) {
+  var pin = block.getFieldValue('PIN');
+  Arduino.setups_['setup_pin_' + pin] = 'pinMode(' + pin + ', INPUT);';
+  return ['digitalRead(' + pin + ')', Arduino.ORDER_ATOMIC];
 };
 
-// Generador para Sensor Ultrasónico
-Arduino['rm_ultrasonic'] = function(block) {
-    const trig = block.getFieldValue('TRIG') || '2';
-    const echo = block.getFieldValue('ECHO') || '3';
-    
-    // Inyectamos una función auxiliar para la lectura del sensor
-    Arduino.definitions_['func_ultrasonic'] = `
-long readUltrasonic(int trigPin, int echoPin) {
-  pinMode(trigPin, OUTPUT);
-  pinMode(echoPin, INPUT);
-  digitalWrite(trigPin, LOW);
-  delayMicroseconds(2);
-  digitalWrite(trigPin, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigPin, LOW);
-  return pulseIn(echoPin, HIGH) * 0.034 / 2;
-}`;
-    return ['readUltrasonic(' + trig + ', ' + echo + ')', Arduino.ORDER_ATOMIC];
+Blockly.Blocks['analog_read'] = {
+  init: function() {
+    this.appendDummyInput().appendField("Leer Analógico PIN").appendField(new Blockly.FieldDropdown([["A0","A0"], ["A1","A1"], ["A2","A2"], ["A3","A3"]]), "PIN");
+    this.setOutput(true, "Number");
+    this.setColour(65);
+  }
+};
+Arduino.forBlock['analog_read'] = function(block) {
+  var pin = block.getFieldValue('PIN');
+  return ['analogRead(' + pin + ')', Arduino.ORDER_ATOMIC];
 };
 
-// Generador para Motor DC
-Arduino['rm_motor'] = function(block) {
-    const pin1 = block.getFieldValue('PIN1') || '5';
-    const pin2 = block.getFieldValue('PIN2') || '6';
-    const speed = Arduino.valueToCode(block, 'SPEED', Arduino.ORDER_NONE) || '0';
-    
-    Arduino.setups_['setup_motor_' + pin1] = 'pinMode(' + pin1 + ', OUTPUT);';
-    Arduino.setups_['setup_motor_' + pin2] = 'pinMode(' + pin2 + ', OUTPUT);';
-    
-    // Lógica básica para driver de motor (un pin PWM, el otro a tierra para dirección fija)
-    // Se puede expandir para manejar dirección si el bloque cambia en el futuro
-    return 'analogWrite(' + pin1 + ', ' + speed + ');\n' +
-           'digitalWrite(' + pin2 + ', LOW);\n';
+Blockly.Blocks['analog_write'] = {
+  init: function() {
+    this.appendDummyInput().appendField("Escribir PWM (Analógico) PIN").appendField(new Blockly.FieldNumber(3), "PIN").appendField("Valor");
+    this.appendValueInput("NUM").setCheck("Number");
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setColour(65);
+  }
+};
+Arduino.forBlock['analog_write'] = function(block) {
+  var pin = block.getFieldValue('PIN');
+  var value = Arduino.valueToCode(block, 'NUM', Arduino.ORDER_ATOMIC) || '0';
+  Arduino.setups_['setup_pin_' + pin] = 'pinMode(' + pin + ', OUTPUT);';
+  return 'analogWrite(' + pin + ', ' + value + ');\n';
 };
 
-// Generador para Leer Bluetooth
-Arduino['rm_bluetooth_read'] = function(block) {
-    Arduino.setups_['setup_serial'] = 'Serial.begin(9600);';
-    return ['Serial.read()', Arduino.ORDER_ATOMIC];
+// --- OTROS COMPONENTES ---
+Blockly.Blocks['custom_delay'] = {
+  init: function() {
+    this.appendValueInput("DELAY_TIME").setCheck("Number").appendField("⏱️ Esperar (ms)");
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setColour(120);
+  }
+};
+Arduino.forBlock['custom_delay'] = function(block) {
+  var delayTime = Arduino.valueToCode(block, 'DELAY_TIME', Arduino.ORDER_ATOMIC) || '1000';
+  return 'delay(' + delayTime + ');\n';
 };
 
-// Generador para Conexión WiFi (ESP32/ESP8266)
-Arduino['rm_wifi_connect'] = function(block) {
-    const ssid = Arduino.quote_(block.getFieldValue('SSID') || 'Network');
-    const pass = Arduino.quote_(block.getFieldValue('PASSWORD') || '12345678');
-    
-    Arduino.definitions_['include_wifi'] = '#include <WiFi.h>'; // Nota: Cambiar a ESP8266WiFi.h si se usa esa placa
-    
-    return 'WiFi.begin(' + ssid + ', ' + pass + ');\n';
+Blockly.Blocks['rm_ultrasonic'] = {
+  init: function() {
+    this.appendDummyInput().appendField("🦇 Sensor Ultrasónico").appendField("Trig").appendField(new Blockly.FieldNumber(11), "TRIG").appendField("Echo").appendField(new Blockly.FieldNumber(12), "ECHO");
+    this.setOutput(true, "Number");
+    this.setColour('#8E44AD');
+  }
+};
+Arduino.forBlock['rm_ultrasonic'] = function(block) {
+  var trig = block.getFieldValue('TRIG');
+  var echo = block.getFieldValue('ECHO');
+  Arduino.definitions_['func_ultrasonic'] = 'long readUltrasonic(int trig, int echo) {\n  pinMode(trig, OUTPUT);\n  digitalWrite(trig, LOW);\n  delayMicroseconds(2);\n  digitalWrite(trig, HIGH);\n  delayMicroseconds(10);\n  digitalWrite(trig, LOW);\n  pinMode(echo, INPUT);\n  return pulseIn(echo, HIGH) * 0.034 / 2;\n}';
+  return ['readUltrasonic(' + trig + ', ' + echo + ')', Arduino.ORDER_ATOMIC];
 };
 
-// Generador para el bloque contenedor "Start" (opcional si se usa setup/loop automático)
-Arduino['arduino_start'] = function(block) {
-    const statements_setup = Arduino.statementToCode(block, 'SETUP');
-    const statements_loop = Arduino.statementToCode(block, 'LOOP');
-    
-    // Si el usuario usa este bloque, inyectamos su contenido.
-    // El sistema `finish` envolverá todo en setup() y loop() de todas formas,
-    // así que esto sirve para organizar bloques dentro del canvas.
-    return '// -- Bloque Start --\n' + 
-           '// Setup manual:\n' + statements_setup + 
-           '// Loop manual:\n' + statements_loop; 
+Blockly.Blocks['rm_motor'] = {
+  init: function() {
+    this.appendDummyInput().appendField("⚙️ Motor RM").appendField(new Blockly.FieldDropdown([["Motor A","A"], ["Motor B","B"]]), "MOTOR").appendField("Velocidad (-255 a 255)");
+    this.appendValueInput("SPEED").setCheck("Number");
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setColour('#E67E22');
+  }
+};
+Arduino.forBlock['rm_motor'] = function(block) {
+  var motor = block.getFieldValue('MOTOR');
+  var speed = Arduino.valueToCode(block, 'SPEED', Arduino.ORDER_ATOMIC) || '100';
+  var pinDir = motor === 'A' ? 3 : 5;
+  var pinPwm = motor === 'A' ? 4 : 6;
+  Arduino.setups_['setup_motor_' + motor] = `pinMode(${pinDir}, OUTPUT); pinMode(${pinPwm}, OUTPUT);`;
+  return `analogWrite(${pinPwm}, abs(${speed})); digitalWrite(${pinDir}, ${speed} > 0 ? HIGH : LOW);\n`;
+};
+
+Blockly.Blocks['rm_bluetooth_read'] = {
+  init: function() {
+    this.appendDummyInput().appendField("🔵 Leer Dato Bluetooth");
+    this.setOutput(true, "String");
+    this.setColour('#2980B9');
+  }
+};
+Arduino.forBlock['rm_bluetooth_read'] = function(block) {
+  Arduino.setups_['serial_bt'] = 'Serial1.begin(9600);';
+  return ['Serial1.readString()', Arduino.ORDER_ATOMIC];
+};
+
+Blockly.Blocks['rm_wifi_connect'] = {
+  init: function() {
+    this.appendDummyInput().appendField("📡 Conectar Wifi").appendField("SSID").appendField(new Blockly.FieldTextInput("MiRed"), "SSID").appendField("Pass").appendField(new Blockly.FieldTextInput("1234"), "PASS");
+    this.setPreviousStatement(true, null);
+    this.setNextStatement(true, null);
+    this.setColour('#27AE60');
+  }
+};
+Arduino.forBlock['rm_wifi_connect'] = function(block) {
+  var ssid = block.getFieldValue('SSID');
+  var pass = block.getFieldValue('PASS');
+  Arduino.definitions_['include_wifi'] = '#include <WiFi.h>';
+  return `WiFi.begin("${ssid}", "${pass}");\n`;
 };
 
 export default Arduino;

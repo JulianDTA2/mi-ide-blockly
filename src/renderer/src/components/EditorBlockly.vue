@@ -1,9 +1,7 @@
 <template>
   <div class="app-layout">
     
-    <!-- BARRA SUPERIOR -->
     <header class="top-bar">
-      <!-- LOGOS -->
       <div class="logo-area">
           <img :src="logo1" alt="Logo RM" class="app-logo" />
           <span class="divider-logo">|</span>
@@ -12,7 +10,6 @@
       
       <div class="controls-wrapper">
         <div class="hardware-controls neu-flat">
-            <!-- SELECTOR DE PLACA (MANUAL + AUTO) -->
             <select v-model="selectedBoardFqbn" class="hw-select neu-input" title="Seleccionar Placa">
                 <option value="arduino:avr:uno">Arduino Uno</option>
                 <option value="arduino:avr:nano">Arduino Nano</option>
@@ -27,12 +24,13 @@
 
               <div class="port-selector">
                   <select v-model="selectedPort" class="hw-select port-select neu-input">
-                      <option value="" disabled>Puerto no sel.</option>
+                      <option value="" disabled>
+                        {{ availablePorts.length === 0 ? 'Sin Puertos' : 'Seleccionar Puerto' }}
+                      </option>
                       <option v-for="p in availablePorts" :key="p.address" :value="p.address">
-                          {{ p.address }} {{ (p.boards && p.boards.length > 0) ? `(${p.boards[0].name})` : '' }}
+                          {{ p.address }}
                       </option>
                   </select>
-                <!-- ICONO REFRESH -->
                 <button @click="refreshPorts" class="icon-btn refresh-btn neu-btn-icon" title="Refrescar Puertos">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
@@ -41,7 +39,6 @@
             </div>
         </div>
 
-        <!-- SKETCH NAME INPUT -->
         <div class="sketch-name-container">
             <input 
                 type="text" 
@@ -52,7 +49,6 @@
         </div>
 
         <div class="actions-area">
-            <!-- VERIFICAR -->
             <button class="action-btn neu-btn verify-btn" @click="verifyCode" :disabled="isCompiling" title="Verificar/Compilar">
                 <span v-if="isCompiling">
                     <svg class="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
@@ -63,7 +59,6 @@
                 <span class="btn-text">Verificar</span>
             </button>
             
-            <!-- SUBIR -->
             <button class="action-btn neu-btn upload-btn" @click="uploadCode" :disabled="isUploading" title="Subir a Placa">
                 <span v-if="isUploading">
                     <svg class="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
@@ -74,7 +69,6 @@
                 <span class="btn-text">Subir</span>
             </button>
 
-            <!-- EJECUTAR (Simulación/Log) -->
             <button class="action-btn neu-btn run-btn" @click="runSimulation" title="Ver Código Generado">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                 <span class="btn-text">Código</span>
@@ -82,7 +76,6 @@
 
             <div class="divider"></div>
 
-            <!-- INSTALAR CORE -->
             <button class="action-btn secondary-btn neu-btn-icon" @click="installAvrCore" :disabled="isInstalling" title="Instalar Soporte Arduino Uno/Nano">
                 <span v-if="isInstalling">
                     <svg class="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
@@ -92,23 +85,19 @@
                 </span>
             </button>
 
-            <!-- ABRIR IDE -->
             <button class="action-btn secondary-btn neu-btn" @click="openInArduino" title="Abrir en IDE Nativo">
                 <span class="btn-text">IDE</span> 
                 <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
             </button>
             
-            <!-- GUARDAR -->
             <button class="action-btn secondary-btn neu-btn-icon" @click="saveSketch" title="Guardar Proyecto">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
             </button>
             
-            <!-- ABRIR -->
             <button class="action-btn secondary-btn neu-btn-icon" @click="loadSketch" title="Abrir Proyecto">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z"></path></svg>
             </button>
             
-            <!-- LIMPIAR -->
             <button class="action-btn delete-btn neu-btn-icon danger" @click="clearWorkspace" title="Limpiar">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
             </button>
@@ -117,7 +106,6 @@
     </header>
 
     <main class="main-content">
-      <!-- BLOCKLY CON FONDO DE PUNTOS -->
       <div ref="blocklyDiv" class="blockly-container neu-inset-large dot-grid-background"></div>
 
       <aside class="right-sidebar neu-flat">
@@ -155,11 +143,7 @@ import * as Blockly from 'blockly';
 import * as En from 'blockly/msg/en';
 import 'blockly/blocks'; 
 
-// 1. IMPORTAMOS LAS DEFINICIONES DE LOS BLOQUES PERSONALIZADOS
-// Asegúrate de haber creado el archivo src/renderer/src/custom_blocks.js
-import createCustomBlocks from '../custom_blocks.js';
-
-// 2. Importamos el Generador
+// Importamos el generador unificado (ESTE define los bloques Y el generador)
 import ArduinoGenerator from '../arduino_core.js'; 
 
 import logo2 from '../../../../resources/logo_m4rk.webp'; 
@@ -186,37 +170,24 @@ const selectedBoardFqbn = ref("arduino:avr:uno");
 
 let workspace = null;
 
-// GESTIÓN DE HARDWARE
-
 async function refreshPorts() {
-  if (!window.api) {
-    console.error("Falta window.api. Asegúrate de actualizar src/preload/index.js");
-    outputLog.value += "\n⚠️ ERROR CRÍTICO: No se detecta la conexión con el backend (preload).";
-    return;
-  }
-
-  outputLog.value += "\nBuscando placas conectadas...";
+  if (!window.api) return;
+  outputLog.value += "\nBuscando puertos...";
   
   try {
     const ports = await window.api.listBoards(); 
-    availablePorts.value = ports;
+    availablePorts.value = ports || [];
     
-    if (ports && ports.length > 0) {
-      const first = ports[0];
-      if (first.address) selectedPort.value = first.address;
-      
-      // Auto-detección de placa
-      if (first.boards && first.boards.length > 0) {
-        selectedBoardFqbn.value = first.boards[0].fqbn;
-        outputLog.value += `\nAuto-detectado: ${first.boards[0].name} en ${first.address}`;
-      } else {
-         outputLog.value += `\nDetectado puerto ${first.address} (Placa desconocida)`;
-      }
+    // LOGICA SIMPLIFICADA PARA PUERTOS: Toma cualquier puerto que encuentre
+    if (availablePorts.value.length > 0) {
+      // Por defecto selecciona el primero
+      selectedPort.value = availablePorts.value[0].address;
+      outputLog.value += `\nPuertos encontrados: ${availablePorts.value.length}`;
     } else {
-      outputLog.value += "\nNo se encontraron placas conectadas.";
+      outputLog.value += "\nNo se encontraron puertos (verifica drivers/cable).";
     }
   } catch (e) {
-    outputLog.value += `\nError listando puertos: ${e.message}`;
+    outputLog.value += `\nError al listar puertos: ${e.message}`;
   }
 }
 
@@ -255,10 +226,9 @@ async function uploadCode() {
   
   isUploading.value = true;
   showOutput.value = true;
-  outputLog.value = "Iniciando subida...\n(Esto compilará el código primero)\n";
+  outputLog.value = "Iniciando subida...\n";
   
   try {
-    // 1. Compilar antes de subir
     const compileRes = await window.api.compile({
       code: generatedCode.value,
       fqbn: selectedBoardFqbn.value,
@@ -271,9 +241,8 @@ async function uploadCode() {
       return;
     }
 
-    outputLog.value += "\nCompilación OK. Subiendo a la placa en " + selectedPort.value + "...\n";
+    outputLog.value += "\nCompilación OK. Subiendo a " + selectedPort.value + "...\n";
     
-    // 2. Subir
     const uploadRes = await window.api.upload({
       port: selectedPort.value,
       fqbn: selectedBoardFqbn.value,
@@ -305,7 +274,6 @@ async function installAvrCore() {
     
     if (res.success) {
         outputLog.value += "\n✅ Core AVR instalado.";
-        // Recargar lista de placas conocidas
         window.api.listAllBoards().then(data => {
             if(data && data.boards) allKnownBoards.value = data.boards;
         });
@@ -364,7 +332,7 @@ function runSimulation() {
     outputLog.value += generatedCode.value;
 }
 
-// --- CONFIGURACIÓN DE BLOCKLY (TOOLBOX) ---
+// DEFINICIÓN DE TOOLBOX: Debe coincidir con los bloques disponibles en arduino_core.js
 const toolbox = {
   kind: 'categoryToolbox',
   contents: [
@@ -372,30 +340,45 @@ const toolbox = {
       { kind: 'block', type: 'arduino_start' },
       { kind: 'button', text: 'Crear Variable', callbackKey: 'CREATE_VARIABLE' },
       { kind: 'block', type: 'variables_get' },
-      { kind: 'block', type: 'variables_set' }
+      { kind: 'block', type: 'variables_set' },
+      { kind: 'block', type: 'variables_set_type' },
+      { kind: 'block', type: 'type_cast' }
     ]},
     { kind: 'category', name: 'Lógica', colour: '#5C81A6', contents: [
       { kind: 'block', type: 'controls_if' },
       { kind: 'block', type: 'logic_compare' },
       { kind: 'block', type: 'logic_operation' },
       { kind: 'block', type: 'logic_boolean' },
-      { kind: 'block', type: 'logic_negate' }
+      { kind: 'block', type: 'logic_negate' },
+      { kind: 'block', type: 'logic_null' },
+      { kind: 'block', type: 'logic_ternary' }
     ]},
     { kind: 'category', name: 'Bucles', colour: '#5CA65C', contents: [
       { kind: 'block', type: 'controls_repeat_ext', inputs: { TIMES: { shadow: { type: 'math_number', fields: { NUM: 10 } } } } },
       { kind: 'block', type: 'controls_whileUntil' },
-      { kind: 'block', type: 'controls_for', inputs: { FROM: { shadow: { type: 'math_number', fields: { NUM: 1 } } }, TO: { shadow: { type: 'math_number', fields: { NUM: 10 } } }, BY: { shadow: { type: 'math_number', fields: { NUM: 1 } } } } }
+      { kind: 'block', type: 'controls_for', inputs: { FROM: { shadow: { type: 'math_number', fields: { NUM: 1 } } }, TO: { shadow: { type: 'math_number', fields: { NUM: 10 } } }, BY: { shadow: { type: 'math_number', fields: { NUM: 1 } } } } },
+      { kind: 'block', type: 'controls_flow_statements' }
     ]},
     { kind: 'category', name: 'Matemáticas', colour: '#5C68A6', contents: [
       { kind: 'block', type: 'math_number' },
       { kind: 'block', type: 'math_arithmetic' },
       { kind: 'block', type: 'math_random_int' },
-      { kind: 'block', type: 'math_map' }
+      { kind: 'block', type: 'math_map' },
+      { kind: 'block', type: 'math_single' },
+      { kind: 'block', type: 'math_trig' },
+      { kind: 'block', type: 'math_constant' },
+      { kind: 'block', type: 'math_number_property' },
+      { kind: 'block', type: 'math_round' },
+      { kind: 'block', type: 'math_modulo' },
+      { kind: 'block', type: 'math_constrain' }
     ]},
     { kind: 'category', name: 'Texto', colour: '#5CA699', contents: [
       { kind: 'block', type: 'text' },
       { kind: 'block', type: 'text_print' },
-      { kind: 'block', type: 'text_join' }
+      { kind: 'block', type: 'text_join' },
+      { kind: 'block', type: 'text_append' },
+      { kind: 'block', type: 'text_length' },
+      { kind: 'block', type: 'text_isEmpty' }
     ]},
     { kind: 'sep' },
     { kind: 'category', name: 'Entrada/Salida', colour: '#5C81A6', contents: [
@@ -429,15 +412,24 @@ function updateContent() {
 function clearWorkspace() {
   if(confirm("¿Estás seguro de borrar todo?")) {
     workspace.clear();
+    // Reiniciar bloque de inicio
+    setTimeout(insertStartBlock, 100);
   }
+}
+
+// Función auxiliar para asegurarnos que siempre haya código base
+function insertStartBlock() {
+    if(!workspace) return;
+    const startBlock = workspace.newBlock('arduino_start');
+    startBlock.initSvg();
+    startBlock.render();
+    workspace.centerOnBlock(startBlock.id);
+    updateContent(); 
 }
 
 onMounted(async () => {
   if (blocklyDiv.value) {
-    // 1. INICIALIZAMOS LOS BLOQUES ANTES DE INYECTAR EL WORKSPACE
-    // Esto es crucial para que Blockly sepa cómo dibujar los bloques personalizados
-    createCustomBlocks();
-
+    // 1. Inyectamos Workspace
     workspace = Blockly.inject(blocklyDiv.value, {
       toolbox: toolbox,
       scrollbars: true,
@@ -462,7 +454,10 @@ onMounted(async () => {
     workspace.addChangeListener(updateContent);
     window.addEventListener('resize', () => Blockly.svgResize(workspace));
     
-    // Iniciar carga de datos del backend
+    // 2. Insertamos bloque de inicio para que el código no salga vacío
+    insertStartBlock();
+
+    // 3. Cargamos puertos
     await refreshPorts();
     
     if(window.api) {
