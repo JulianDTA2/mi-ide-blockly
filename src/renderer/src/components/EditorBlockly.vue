@@ -22,15 +22,20 @@
                 </option>
             </select>
 
-              <div class="port-selector">
-                  <select v-model="selectedPort" class="hw-select port-select neu-input">
-                      <option value="" disabled>
-                        {{ availablePorts.length === 0 ? 'Sin Puertos' : 'Seleccionar Puerto' }}
-                      </option>
-                      <option v-for="p in availablePorts" :key="p.address" :value="p.address">
-                          {{ p.address }}
-                      </option>
-                  </select>
+            <div class="port-selector">
+                <select 
+                    v-model="selectedPort" 
+                    class="hw-select port-select neu-input"
+                    :title="selectedPort ? 'Puerto Seleccionado: ' + selectedPort : 'Sin puerto'"
+                >
+                    <option value="" disabled>
+                      {{ availablePorts.length === 0 ? 'Sin Puertos' : 'Seleccionar Puerto' }}
+                    </option>
+                    <option v-for="p in availablePorts" :key="p.address" :value="p.address">
+                        {{ p.label }}
+                    </option>
+                </select>
+
                 <button @click="refreshPorts" class="icon-btn refresh-btn neu-btn-icon" title="Refrescar Puertos">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
@@ -138,12 +143,12 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue';
+import { onMounted, ref, computed } from 'vue'; // Importamos computed
 import * as Blockly from 'blockly';
 import * as En from 'blockly/msg/en';
 import 'blockly/blocks'; 
 
-// Importamos el generador unificado (ESTE define los bloques Y el generador)
+// Importación unificada (Bloques + Generador)
 import ArduinoGenerator from '../arduino_core.js'; 
 
 import logo2 from '../../../../resources/logo_m4rk.webp'; 
@@ -163,12 +168,36 @@ const showOutput = ref(true);
 const sketchName = ref("MySketch");
 
 // Refs de Hardware
-const availablePorts = ref([]);
+const rawPorts = ref([]); // Almacena la respuesta pura del backend
 const selectedPort = ref("");
 const allKnownBoards = ref([]); 
 const selectedBoardFqbn = ref("arduino:avr:uno"); 
 
 let workspace = null;
+
+// --- COMPUTADA: FORMATO DE PUERTOS LIMPIO Y ROBUSTO ---
+const availablePorts = computed(() => {
+    // Si rawPorts es null o undefined, retornamos array vacío
+    if (!rawPorts.value || !Array.isArray(rawPorts.value)) return [];
+
+    return rawPorts.value.map(p => {
+        // INTENTO 1: Buscar 'address' en la raíz (formato estándar)
+        let portName = p.address;
+        
+        // INTENTO 2: Buscar 'address' anidado en 'port' (formato discovery que causaba el error)
+        if (!portName && p.port && p.port.address) {
+            portName = p.port.address;
+        }
+        
+        // Fallback final: Si sigue sin encontrarlo, lo descartamos para no generar "Puertodesconocido"
+        if (!portName) return null;
+
+        return {
+            address: portName,
+            label: portName, // Solo mostramos el nombre del puerto (ej: COM3)
+        };
+    }).filter(p => p !== null); // Filtramos los inválidos
+});
 
 async function refreshPorts() {
   if (!window.api) return;
@@ -176,16 +205,21 @@ async function refreshPorts() {
   
   try {
     const ports = await window.api.listBoards(); 
-    availablePorts.value = ports || [];
+    rawPorts.value = ports || [];
     
-    // LOGICA SIMPLIFICADA PARA PUERTOS: Toma cualquier puerto que encuentre
-    if (availablePorts.value.length > 0) {
-      // Por defecto selecciona el primero
-      selectedPort.value = availablePorts.value[0].address;
-      outputLog.value += `\nPuertos encontrados: ${availablePorts.value.length}`;
-    } else {
-      outputLog.value += "\nNo se encontraron puertos (verifica drivers/cable).";
-    }
+    // Usamos setTimeout para dar tiempo a que la propiedad computada se recalcule
+    setTimeout(() => {
+        if (availablePorts.value.length > 0) {
+            // Si no hay nada seleccionado, seleccionar el primero de la lista LIMPIA
+            if (!selectedPort.value) {
+                selectedPort.value = availablePorts.value[0].address;
+            }
+            outputLog.value += `\nEncontrados: ${availablePorts.value.length}`;
+        } else {
+            outputLog.value += "\nNo se encontraron puertos (verifica drivers/cable).";
+        }
+    }, 50);
+    
   } catch (e) {
     outputLog.value += `\nError al listar puertos: ${e.message}`;
   }
@@ -226,7 +260,8 @@ async function uploadCode() {
   
   isUploading.value = true;
   showOutput.value = true;
-  outputLog.value = "Iniciando subida...\n";
+  outputLog.value = `Iniciando subida a ${selectedPort.value}...\n`;
+  updateContent();
   
   try {
     const compileRes = await window.api.compile({
@@ -241,7 +276,7 @@ async function uploadCode() {
       return;
     }
 
-    outputLog.value += "\nCompilación OK. Subiendo a " + selectedPort.value + "...\n";
+    outputLog.value += "\nCompilación OK. Subiendo...\n";
     
     const uploadRes = await window.api.upload({
       port: selectedPort.value,
@@ -406,14 +441,6 @@ function updateContent() {
     generatedXml.value = Blockly.Xml.domToPrettyText(xmlDom);
   } catch (e) {
     console.error(e);
-  }
-}
-
-function clearWorkspace() {
-  if(confirm("¿Estás seguro de borrar todo?")) {
-    workspace.clear();
-    // Reiniciar bloque de inicio
-    setTimeout(insertStartBlock, 100);
   }
 }
 

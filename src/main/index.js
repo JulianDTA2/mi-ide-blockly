@@ -8,53 +8,36 @@ import fs from 'fs'
 import os from 'os'
 
 // [SEGURIDAD] Función para limpiar inputs de comandos
-// Evita que un atacante inyecte comandos extraños en el FQBN o el puerto
 const sanitizeCmd = (str) => {
   if (!str) return '';
-  // Solo permite letras, números, guiones, puntos y dos puntos (para fqbn: arduino:avr:uno)
   return str.replace(/[^a-zA-Z0-9_\-.:]/g, '');
 }
 
-// --- CONFIGURACIÓN DE ARDUINO CLI ---
 const getArduinoCliPath = () => {
-  // Detectar plataforma para añadir .exe si es Windows
   const ext = process.platform === 'win32' ? '.exe' : '';
-  
   let cliPath = '';
   if (app.isPackaged) {
-    // En producción (instalador): resources/bin/arduino-cli.exe
     cliPath = path.join(process.resourcesPath, 'bin', `arduino-cli${ext}`)
   } else {
-    // En desarrollo: root/bin/arduino-cli.exe
-    // Ajustamos la ruta relativa desde src/main
     cliPath = path.join(__dirname, '../../bin', `arduino-cli${ext}`)
   }
   
-  // Debug: Verificar si existe el archivo
   if (!fs.existsSync(cliPath)) {
     console.error(`❌ CRÍTICO: No se encontró arduino-cli en: ${cliPath}`);
-  } else {
-    console.log(`✅ Arduino CLI encontrado en: ${cliPath}`);
   }
-  
   return cliPath;
 }
 
-// Utilidad para crear carpeta temporal con el nombre del sketch
-// Arduino CLI requiere que el archivo .ino esté en una carpeta del mismo nombre
 const createTempSketch = async (code, sketchName) => {
-  // Limpiamos el nombre de caracteres inseguros
   const safeName = (sketchName || 'Sketch').replace(/[^a-zA-Z0-9_-]/g, '_');
   const tmpDir = os.tmpdir()
   const projectDir = path.join(tmpDir, safeName)
   const filePath = path.join(projectDir, `${safeName}.ino`)
   
-  // Crear directorio si no existe
   if (!fs.existsSync(projectDir)) {
     fs.mkdirSync(projectDir, { recursive: true })
   }
   
-  // Escribir el código en el archivo .ino
   fs.writeFileSync(filePath, code)
   return { projectDir, filePath, safeName }
 }
@@ -90,7 +73,6 @@ function createWindow() {
   }
 }
 
-// --- INICIO DE LA APLICACIÓN ---
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.markrobot.ide')
 
@@ -99,60 +81,78 @@ app.whenReady().then(() => {
   })
 
   // ==========================================
-  //     API HANDLERS (COMUNICACIÓN IPC)
+  //     API HANDLERS (BACKEND CORREGIDO)
   // ==========================================
 
-  // 1. Listar puertos conectados actualmente
+  // 1. Listar puertos (CON FILTRO DE LIMPIEZA)
   ipcMain.handle('arduino:list-boards', async () => {
     const cliPath = getArduinoCliPath()
     return new Promise((resolve) => {
-      exec(`"${cliPath}" board list --format json`, (error, stdout) => {
-        if (error) {
-          console.error("Error listando boards:", error);
-          resolve([]);
-          return;
-        }
+      // Ejecutamos el comando
+      exec(`"${cliPath}" board list --format json`, (error, stdout, stderr) => {
+        // Ignoramos 'error' si stdout tiene datos útiles, ya que a veces CLI da warnings como error
+        
         try {
-          const data = JSON.parse(stdout);
-          resolve(data || []);
+          // [CORRECCIÓN CRÍTICA]
+          // Arduino CLI a veces imprime logs tipo "discovery-log INFO..." junto al JSON.
+          // Buscamos dónde empieza '[' y dónde termina ']' para extraer SOLO el JSON.
+          const jsonStart = stdout.indexOf('[');
+          const jsonEnd = stdout.lastIndexOf(']');
+
+          if (jsonStart === -1 || jsonEnd === -1) {
+            console.warn("⚠️ Respuesta vacía o inválida del CLI:", stdout);
+            resolve([]); // Si no hay corchetes, no hay lista
+            return;
+          }
+
+          // Extraemos solo la parte válida: [...]
+          const cleanJson = stdout.substring(jsonStart, jsonEnd + 1);
+          const data = JSON.parse(cleanJson);
+          
+          resolve(Array.isArray(data) ? data : []);
+          
         } catch (e) {
+          console.error("❌ Error parseando lista de puertos:", e);
+          // Si falla, devolvemos array vacío para no romper el frontend
           resolve([]);
         }
       })
     })
   })
 
-  // 2. Listar TODAS las placas soportadas (Catálogo para el select manual)
+  // 2. Listar TODAS las placas
   ipcMain.handle('arduino:list-all-boards', async () => {
     const cliPath = getArduinoCliPath()
     return new Promise((resolve) => {
-      console.log("Cargando lista de placas conocidas...");
-      // 'board listall' devuelve todas las definiciones instaladas
       exec(`"${cliPath}" board listall --format json`, (error, stdout) => {
         try {
-          const data = JSON.parse(stdout);
-          resolve(data || { boards: [] });
+            // Aplicamos la misma lógica de limpieza por seguridad
+            const jsonStart = stdout.indexOf('{');
+            const jsonEnd = stdout.lastIndexOf('}');
+            if (jsonStart !== -1 && jsonEnd !== -1) {
+                const cleanJson = stdout.substring(jsonStart, jsonEnd + 1);
+                const data = JSON.parse(cleanJson);
+                resolve(data || { boards: [] });
+            } else {
+                resolve({ boards: [] });
+            }
         } catch (e) {
-          // Si falla (ej. JSON inválido), devolvemos lista vacía
           resolve({ boards: [] });
         }
       })
     })
   })
 
-  // 3. Compilar Código
+  // 3. Compilar
   ipcMain.handle('arduino:compile', async (event, { code, fqbn, sketchName }) => {
     const cliPath = getArduinoCliPath()
-    // [SEGURIDAD] Sanitizamos el FQBN antes de pasarlo al comando
     const safeFqbn = sanitizeCmd(fqbn);
 
     try {
-      // 1. Crear archivo temporal .ino
       const { projectDir } = await createTempSketch(code, sketchName)
-      console.log(`Compilando ${safeFqbn} en ${projectDir}...`);
+      console.log(`Compilando ${safeFqbn}...`);
       
       return new Promise((resolve) => {
-        // 2. Ejecutar comando compile usando el FQBN sanitizado
         const cmd = `"${cliPath}" compile --fqbn ${safeFqbn} "${projectDir}"`
         exec(cmd, (error, stdout, stderr) => {
           resolve({
@@ -166,20 +166,17 @@ app.whenReady().then(() => {
     }
   })
 
-  // 4. Subir Código a la Placa
+  // 4. Subir
   ipcMain.handle('arduino:upload', async (event, { port, fqbn, sketchName }) => {
     const cliPath = getArduinoCliPath()
-    // Recuperamos la ruta temporal basada en el nombre del sketch
     const safeName = (sketchName || 'Sketch').replace(/[^a-zA-Z0-9_-]/g, '_');
     const projectDir = path.join(os.tmpdir(), safeName)
 
-    // [SEGURIDAD] Sanitizamos Puerto y FQBN
     const safePort = sanitizeCmd(port);
     const safeFqbn = sanitizeCmd(fqbn);
 
     return new Promise((resolve) => {
-      console.log(`Subiendo a ${safePort} (FQBN: ${safeFqbn})...`);
-      // Comando upload con variables sanitizadas
+      console.log(`Subiendo a ${safePort}...`);
       const cmd = `"${cliPath}" upload -p ${safePort} --fqbn ${safeFqbn} "${projectDir}"`
       exec(cmd, (error, stdout, stderr) => {
         resolve({
@@ -190,11 +187,10 @@ app.whenReady().then(() => {
     })
   })
 
-  // 5. Instalar Core (ej: arduino:avr)
+  // 5. Instalar Core
   ipcMain.handle('arduino:install-core', async (event, coreName) => {
     const cliPath = getArduinoCliPath()
     return new Promise((resolve) => {
-      // Nota: Si planeas soportar ESP32, aquí deberías añadir lógica para --additional-urls
       console.log(`Instalando core: ${coreName}...`);
       const cmd = `"${cliPath}" core install ${coreName}`
       exec(cmd, (error, stdout, stderr) => {
@@ -206,18 +202,18 @@ app.whenReady().then(() => {
     })
   })
 
-  // 6. Abrir en Arduino IDE Nativo (si está instalado y asociado a .ino)
+  // 6. Abrir en IDE
   ipcMain.handle('arduino:open-ide', async (event, { code, sketchName }) => {
     try {
       const { filePath } = await createTempSketch(code, sketchName)
-      shell.openPath(filePath) // Abre el archivo con la app predeterminada del sistema
+      shell.openPath(filePath) 
       return { success: true }
     } catch (err) {
       return { success: false, error: err.message }
     }
   })
 
-  // 7. Diálogo: Guardar Archivo (XML Blockly)
+  // 7. Guardar
   ipcMain.handle('dialog:save-file', async (event, content, defaultName) => {
     const { canceled, filePath } = await dialog.showSaveDialog({
       defaultPath: defaultName || 'MySketch.xml',
@@ -230,7 +226,7 @@ app.whenReady().then(() => {
     return { success: false }
   })
 
-  // 8. Diálogo: Abrir Archivo (XML Blockly)
+  // 8. Abrir
   ipcMain.handle('dialog:open-file', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       properties: ['openFile'],
