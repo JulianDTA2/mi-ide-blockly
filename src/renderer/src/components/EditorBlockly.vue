@@ -143,7 +143,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref, computed } from 'vue'; // Importamos computed
+import { onMounted, ref, computed } from 'vue'; 
 import * as Blockly from 'blockly';
 import * as En from 'blockly/msg/en';
 import 'blockly/blocks'; 
@@ -151,6 +151,7 @@ import 'blockly/blocks';
 // Importación unificada (Bloques + Generador)
 import ArduinoGenerator from '../arduino_core.js'; 
 
+// Ajusta estas rutas a tus logos reales
 import logo2 from '../../../../resources/logo_m4rk.webp'; 
 import logo1 from '../../../../resources/logo_RM.png';
 
@@ -168,7 +169,7 @@ const showOutput = ref(true);
 const sketchName = ref("MySketch");
 
 // Refs de Hardware
-const rawPorts = ref([]); // Almacena la respuesta pura del backend
+const rawPorts = ref([]); 
 const selectedPort = ref("");
 const allKnownBoards = ref([]); 
 const selectedBoardFqbn = ref("arduino:avr:uno"); 
@@ -177,26 +178,20 @@ let workspace = null;
 
 // --- COMPUTADA: FORMATO DE PUERTOS LIMPIO Y ROBUSTO ---
 const availablePorts = computed(() => {
-    // Si rawPorts es null o undefined, retornamos array vacío
     if (!rawPorts.value || !Array.isArray(rawPorts.value)) return [];
 
     return rawPorts.value.map(p => {
-        // INTENTO 1: Buscar 'address' en la raíz (formato estándar)
         let portName = p.address;
-        
-        // INTENTO 2: Buscar 'address' anidado en 'port' (formato discovery que causaba el error)
         if (!portName && p.port && p.port.address) {
             portName = p.port.address;
         }
-        
-        // Fallback final: Si sigue sin encontrarlo, lo descartamos para no generar "Puertodesconocido"
         if (!portName) return null;
 
         return {
             address: portName,
-            label: portName, // Solo mostramos el nombre del puerto (ej: COM3)
+            label: portName, 
         };
-    }).filter(p => p !== null); // Filtramos los inválidos
+    }).filter(p => p !== null); 
 });
 
 async function refreshPorts() {
@@ -207,10 +202,8 @@ async function refreshPorts() {
     const ports = await window.api.listBoards(); 
     rawPorts.value = ports || [];
     
-    // Usamos setTimeout para dar tiempo a que la propiedad computada se recalcule
     setTimeout(() => {
         if (availablePorts.value.length > 0) {
-            // Si no hay nada seleccionado, seleccionar el primero de la lista LIMPIA
             if (!selectedPort.value) {
                 selectedPort.value = availablePorts.value[0].address;
             }
@@ -285,7 +278,7 @@ async function uploadCode() {
     });
     
     outputLog.value += uploadRes.log;
-    if (uploadRes.success) outputLog.value += "\n🚀 SUBIDA COMPLETADA.";
+    if (uploadRes.success) outputLog.value += "\nSUBIDA COMPLETADA.\n Ejecutando...";
   } catch (e) {
     outputLog.value += "\nError crítico en subida: " + e.message;
   } finally {
@@ -361,13 +354,24 @@ async function loadSketch() {
   }
 }
 
+function clearWorkspace() {
+    if(confirm("¿Estás seguro de borrar todos los bloques?")) {
+        workspace.clear();
+        insertStartBlock();
+        outputLog.value += "\nWorkspace limpiado.";
+    }
+}
+
 function runSimulation() {
     showOutput.value = true;
     outputLog.value += "\n--- CÓDIGO GENERADO ---\n";
     outputLog.value += generatedCode.value;
 }
 
-// DEFINICIÓN DE TOOLBOX: Debe coincidir con los bloques disponibles en arduino_core.js
+// =========================================================
+// DEFINICIÓN DE TOOLBOX (MENÚ LATERAL)
+// =========================================================
+// Aquí se registran todas las categorías para que aparezcan en la UI.
 const toolbox = {
   kind: 'categoryToolbox',
   contents: [
@@ -420,14 +424,31 @@ const toolbox = {
       { kind: 'block', type: 'digital_write' },
       { kind: 'block', type: 'digital_read' },
       { kind: 'block', type: 'analog_read' },
-      { kind: 'block', type: 'analog_write' }
+      { kind: 'block', type: 'analog_write' },
+      { kind: 'block', type: 'custom_delay' }
     ]},
-    { kind: 'category', name: 'Tiempo', colour: '#5CA65C', contents: [ { kind: 'block', type: 'custom_delay' } ]},
-    { kind: 'category', name: 'RoboticMinds', colour: '#8E44AD', contents: [
-      { kind: 'block', type: 'rm_ultrasonic' },
-      { kind: 'block', type: 'rm_motor' },
-      { kind: 'block', type: 'rm_bluetooth_read' },
-      { kind: 'block', type: 'rm_wifi_connect' }
+    // --- NUEVAS CATEGORÍAS AÑADIDAS ---
+    { kind: 'category', name: 'Motores & Energía', colour: '#E67E22', contents: [
+      { kind: 'block', type: 'motor_setup' },
+      { kind: 'block', type: 'motor_run' },
+      { kind: 'block', type: 'motor_stop' }
+    ]},
+    { kind: 'category', name: 'Pantallas (8x8)', colour: '#D35400', contents: [
+      { kind: 'block', type: 'display_8x8_setup' },
+      { kind: 'block', type: 'display_8x8_draw' }
+    ]},
+    { kind: 'category', name: 'Sensores', colour: '#8E44AD', contents: [
+      { kind: 'block', type: 'ultrasonic_read' },
+      { kind: 'block', type: 'color_sensor_read' },
+      { kind: 'block', type: 'sound_sensor_read' }
+    ]},
+    { kind: 'category', name: 'Conectividad', colour: '#2980B9', contents: [
+      { kind: 'block', type: 'wifi_connect' },
+      { kind: 'block', type: 'wifi_is_connected' },
+      { kind: 'block', type: 'bluetooth_setup' },
+      { kind: 'block', type: 'bluetooth_read_string' },
+      { kind: 'block', type: 'bluetooth_send_string' },
+      { kind: 'block', type: 'rm_bluetooth_read' }
     ]}
   ]
 };
@@ -444,7 +465,6 @@ function updateContent() {
   }
 }
 
-// Función auxiliar para asegurarnos que siempre haya código base
 function insertStartBlock() {
     if(!workspace) return;
     const startBlock = workspace.newBlock('arduino_start');
@@ -456,7 +476,6 @@ function insertStartBlock() {
 
 onMounted(async () => {
   if (blocklyDiv.value) {
-    // 1. Inyectamos Workspace
     workspace = Blockly.inject(blocklyDiv.value, {
       toolbox: toolbox,
       scrollbars: true,
@@ -481,10 +500,8 @@ onMounted(async () => {
     workspace.addChangeListener(updateContent);
     window.addEventListener('resize', () => Blockly.svgResize(workspace));
     
-    // 2. Insertamos bloque de inicio para que el código no salga vacío
     insertStartBlock();
 
-    // 3. Cargamos puertos
     await refreshPorts();
     
     if(window.api) {
