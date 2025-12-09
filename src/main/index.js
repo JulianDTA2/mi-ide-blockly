@@ -19,7 +19,11 @@ const getArduinoCliPath = () => {
   if (app.isPackaged) {
     cliPath = path.join(process.resourcesPath, 'bin', `arduino-cli${ext}`)
   } else {
-    cliPath = path.join(__dirname, '../../bin', `arduino-cli${ext}`)
+    const devBinPath = process.platform === 'win32' 
+        ? '../../bin/win/arduino-cli.exe' 
+        : '../../bin/mac/arduino-cli';
+        
+    cliPath = path.join(__dirname, devBinPath)
   }
   
   if (!fs.existsSync(cliPath)) {

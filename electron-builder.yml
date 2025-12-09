@@ -1,6 +1,7 @@
-appId: com.roboticminds.ide
-productName: MarkRobot IDE
+appId: com.m4rkrobot.ide
+productName: M4rkRobot IDE
 directories:
+  output: dist
   buildResources: resources
 files:
   - '!**/.vscode/*'
@@ -9,6 +10,9 @@ files:
   - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!bin/*' 
+  - "**/*"
+  - "!**/*.{iml,o,hprof,pyc,pyo,rbc,swp,.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,__pycache__,thumbs.db,.gitignore,.editorconfig}"
+
 
 extraResources:
   - from: "bin"
@@ -23,6 +27,9 @@ win:
   executableName: MarkRobotIDE
   icon: resources/logo_RM.png
   target: nsis
+  extraResources:
+    - from: "bin/win/arduino-cli.exe"
+      to: "bin/arduino-cli.exe"
 
 nsis:
   oneClick: false
@@ -30,12 +37,16 @@ nsis:
   shortcutName: MarkRobot IDE
 
 mac:
+  target: dmg
+  icon: build/icon.icns
+  category: public.app-category.developer-tools
+  identity: null
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  extendInfo:
-    - NSCameraUsageDescription: Application requests access to the device's camera.
-    - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
-    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
-    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+  extraResources:
+    - from: "bin/mac/arduino-cli"
+      to: "bin/arduino-cli"
 
 linux:
   target:
@@ -44,3 +55,13 @@ linux:
     - deb
   maintainer: electronjs.org
   category: Development
+
+dmg:
+  title: "${productName} ${version}"
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
