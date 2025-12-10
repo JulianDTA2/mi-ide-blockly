@@ -3,7 +3,7 @@ name: Build/Release
 on:
   push:
     tags:
-      - 'v*' # Se ejecuta cuando subes un tag como v1.0.0
+      - 'v*' # Se activa con tags como v1.0.1, v1.0.2, etc.
 
 jobs:
   release:
@@ -11,7 +11,7 @@ jobs:
 
     strategy:
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        os: [macos-latest] # Solo Mac por ahora
 
     steps:
       - name: Check out Git repository
@@ -25,13 +25,15 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
-      # Solo para Linux (si lo necesitas)
-      - name: Install Linux deps
-        if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get install --no-install-recommends -y libopenjp2-7-dev libgdk-pixbuf2.0-dev libgtk-3-dev libssl-dev
+      # Compilar el código fuente (Vue/Vite)
+      - name: Build Frontend
+        run: npm run build
 
-      - name: Build & Release
+      # Generar el ejecutable/DMG y subirlo a Releases
+      - name: Build & Release Electron App
         uses: samuelmeuli/action-electron-builder@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           release: true
+          mac_certs: '' # Dejar vacío si no tienes certificado de Apple (la app será "no firmada")
+          mac_certs_password: ''
