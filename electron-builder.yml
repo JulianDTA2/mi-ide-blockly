@@ -9,27 +9,26 @@ files:
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
-  - '!bin/*' 
-  - "**/*"
-  - "!**/*.{iml,o,hprof,pyc,pyo,rbc,swp,.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,__pycache__,thumbs.db,.gitignore,.editorconfig}"
-
+  - '!bin/*'
+  - '**/*'
+  - '!**/*.{iml,o,hprof,pyc,pyo,rbc,swp,.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,__pycache__,thumbs.db,.gitignore,.editorconfig}'
 
 extraResources:
-  - from: "bin"
-    to: "bin"
+  - from: 'bin'
+    to: 'bin'
     filter:
-      - "**/*"
+      - '**/*'
 
 asarUnpack:
   - resources/**
 
 win:
   executableName: MarkRobotIDE
-  icon: resources/logo_RM.png
+  icon: resources/logo_m4rk.png
   target: nsis
   extraResources:
-    - from: "bin/win/arduino-cli.exe"
-      to: "bin/arduino-cli.exe"
+    - from: 'bin/win/arduino-cli.exe'
+      to: 'bin/arduino-cli.exe'
 
 nsis:
   oneClick: false
@@ -45,8 +44,8 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extraResources:
-    - from: "bin/mac/arduino-cli"
-      to: "bin/arduino-cli"
+    - from: 'bin/mac/arduino-cli'
+      to: 'bin/arduino-cli'
 
 linux:
   target:
@@ -57,7 +56,7 @@ linux:
   category: Development
 
 dmg:
-  title: "${productName} ${version}"
+  title: '${productName} ${version}'
   contents:
     - x: 130
       y: 220

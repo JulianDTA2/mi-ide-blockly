@@ -3,8 +3,8 @@
     
     <header class="top-bar">
       <div class="logo-area">
-          <img :src="logo1" alt="Logo RM" class="app-logo" />
-          <span class="divider-logo">|</span>
+          <!--<img :src="logo1" alt="Logo RM" class="app-logo" />
+          <span class="divider-logo">|</span>-->
           <img :src="logo2" alt="Logo Mark" class="app-logo" />
       </div>
       
