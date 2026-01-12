@@ -5,7 +5,15 @@
     <title>RoboticLab</title>
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self';"
+      content="
+        default-src 'self'; 
+        script-src 'self' 'unsafe-eval'; 
+        style-src 'self' 'unsafe-inline'; 
+        img-src 'self' data:; 
+        media-src 'self'; 
+        connect-src 'self' http://localhost:3000 http://127.0.0.1:3000 ws:; 
+        worker-src 'self' blob:;
+      "
     />
   </head>
 

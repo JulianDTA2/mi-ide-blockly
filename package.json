@@ -21,7 +21,9 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
-    "blockly": "^12.3.1"
+    "avrgirl-arduino": "^5.0.1",
+    "blockly": "^12.3.1",
+    "vite-plugin-node-polyfills": "^0.24.0"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config": "^2.1.0",
